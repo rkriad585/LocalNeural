@@ -1,0 +1,41 @@
+<div id="settings-modal" class="fixed inset-0 z-[60] hidden">
+    <div class="absolute inset-0 bg-black/80 backdrop-blur-sm" onclick="toggleSettings()"></div>
+    <div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-full max-w-lg p-6 bg-[#0a0a0a] border border-white/10 rounded-2xl shadow-2xl animate-fade-in-up">
+        
+        <div class="flex justify-between items-center mb-6">
+            <h2 class="text-lg font-mono font-bold tracking-wider uppercase">System Config</h2>
+            <button onclick="toggleSettings()" class="text-gray-500 hover:text-white"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+        </div>
+
+        <div class="space-y-6">
+            <!-- System Prompt -->
+            <div>
+                <label class="block text-xs font-mono text-gray-500 mb-2 uppercase">System Prompt</label>
+                <textarea id="setting-system" rows="3" class="w-full bg-[#151515] border border-white/10 rounded-lg p-3 text-sm text-gray-200 focus:border-nothing-red focus:outline-none resize-none"></textarea>
+            </div>
+
+            <!-- Temperature -->
+            <div>
+                <div class="flex justify-between mb-2">
+                    <label class="block text-xs font-mono text-gray-500 uppercase">Temperature</label>
+                    <span id="temp-display" class="text-xs font-mono text-nothing-red">0.7</span>
+                </div>
+                <input type="range" id="setting-temp" min="0" max="1" step="0.1" value="0.7" class="w-full" oninput="document.getElementById('temp-display').innerText = this.value">
+            </div>
+
+            <!-- Export Data -->
+            <div class="pt-4 border-t border-white/10">
+                <label class="block text-xs font-mono text-gray-500 mb-3 uppercase">Export Current Chat</label>
+                <div class="grid grid-cols-3 gap-2">
+                    <button onclick="exportChat('md')" class="px-3 py-2 bg-white/5 hover:bg-white/10 rounded text-xs border border-white/10">Markdown</button>
+                    <button onclick="exportChat('json')" class="px-3 py-2 bg-white/5 hover:bg-white/10 rounded text-xs border border-white/10">JSON</button>
+                    <button onclick="exportChat('html')" class="px-3 py-2 bg-white/5 hover:bg-white/10 rounded text-xs border border-white/10">HTML / PDF</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="mt-8 flex justify-end gap-3">
+            <button onclick="saveSettings()" class="px-6 py-2 bg-nothing-red text-white text-sm font-bold rounded-full hover:bg-red-600 transition shadow-lg">Save</button>
+        </div>
+    </div>
+</div>
