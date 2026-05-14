@@ -184,6 +184,6 @@ Distributed under the **MIT License**. See `LICENSE` for more information.
 
 <div align="center">
 
-Made with ❤️ by  [rkstudio585](https://github.com/rkstudio585)
+Made with ❤️ by  [rkriad585](https://github.com/rkriad585)
 
 </div>
