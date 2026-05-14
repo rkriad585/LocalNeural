@@ -1,38 +1,65 @@
 import io
+import csv
+import json
 from pypdf import PdfReader
 
 def extract_text_from_file(file_storage):
-    """
-    Robust text extractor for Uploaded Knowledge Base.
-    Function: extract_text_from_file
-    """
     filename = file_storage.filename.lower()
     text_content = ""
 
     try:
-        # 1. PDF Handling
         if filename.endswith('.pdf'):
             try:
-                # Wrap stream for pypdf
                 pdf_file = io.BytesIO(file_storage.read())
                 reader = PdfReader(pdf_file)
                 for page in reader.pages:
                     extracted = page.extract_text()
                     if extracted:
                         text_content += extracted + "\n"
-                
-                # If PDF text layer is empty (scanned image), warn user (OCR is too heavy for this scope)
+
                 if not text_content.strip():
-                    return f"[Warning: PDF {filename} appears to be empty or scanned images. No text text found.]"
-                    
+                    return ""
+
             except Exception as e:
                 return f"[Error parsing PDF {filename}: {str(e)}]"
 
-        # 2. Text/Code Handling (.py, .js, .md, .txt, .json, .html, .css, etc.)
+        elif filename.endswith('.docx'):
+            try:
+                from docx import Document
+                file_storage.seek(0)
+                doc = Document(file_storage)
+                for para in doc.paragraphs:
+                    text_content += para.text + "\n"
+                if not text_content.strip():
+                    return ""
+            except Exception as e:
+                return f"[Error parsing DOCX {filename}: {str(e)}]"
+
+        elif filename.endswith('.csv'):
+            try:
+                file_storage.seek(0)
+                content = file_storage.read().decode('utf-8', errors='replace')
+                reader = csv.reader(io.StringIO(content))
+                for i, row in enumerate(reader):
+                    text_content += " | ".join(row) + "\n"
+                if not text_content.strip():
+                    return ""
+            except Exception as e:
+                return f"[Error parsing CSV {filename}: {str(e)}]"
+
+        elif filename.endswith('.json'):
+            try:
+                file_storage.seek(0)
+                content = file_storage.read().decode('utf-8', errors='replace')
+                data = json.loads(content)
+                text_content = json.dumps(data, indent=2)
+                if not text_content.strip():
+                    return ""
+            except Exception as e:
+                return f"[Error parsing JSON {filename}: {str(e)}]"
+
         else:
             try:
-                # content = file_storage.read().decode('utf-8') # Stream might be consumed by PDF check if logic flows wrong
-                # Reset stream pointer just in case
                 file_storage.seek(0)
                 content = file_storage.read().decode('utf-8', errors='replace')
                 text_content = content
@@ -43,3 +70,13 @@ def extract_text_from_file(file_storage):
 
     except Exception as e:
         return f"[System Error processing file: {str(e)}]"
+
+
+def extract_html_text(html):
+    import re
+    text = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL)
+    text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL)
+    text = re.sub(r'<[^>]+>', ' ', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    lines = [l.strip() for l in text.split('\n') if l.strip()]
+    return '\n'.join(lines[:200])

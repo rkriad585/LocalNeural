@@ -1,17 +1,23 @@
 <div id="settings-modal" class="fixed inset-0 z-[60] hidden">
     <div class="absolute inset-0 bg-black/80 backdrop-blur-sm" onclick="toggleSettings()"></div>
-    <div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-full max-w-lg p-6 bg-[#0a0a0a] border border-white/10 rounded-2xl shadow-2xl animate-fade-in-up">
+    <div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-full max-w-lg bg-[#0a0a0a] border border-white/10 rounded-2xl shadow-2xl animate-fade-in-up max-h-[90vh] flex flex-col">
         
-        <div class="flex justify-between items-center mb-6">
+        <div class="flex justify-between items-center mb-6 px-6 pt-6 shrink-0">
             <h2 class="text-lg font-mono font-bold tracking-wider uppercase">System Config</h2>
             <button onclick="toggleSettings()" class="text-gray-500 hover:text-white"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
         </div>
 
-        <div class="space-y-6">
+        <div class="space-y-6 px-6 pb-6 overflow-y-auto">
             <!-- System Prompt -->
             <div>
                 <label class="block text-xs font-mono text-gray-500 mb-2 uppercase">System Prompt</label>
                 <textarea id="setting-system" rows="3" class="w-full bg-[#151515] border border-white/10 rounded-lg p-3 text-sm text-gray-200 focus:border-nothing-red focus:outline-none resize-none"></textarea>
+                <div class="mt-2">
+                    <label class="text-[10px] font-mono text-gray-600 uppercase">Load Template</label>
+                    <select id="template-select" onchange="applyTemplate()" class="w-full bg-[#151515] border border-white/10 rounded px-2 py-1.5 text-xs text-gray-300 focus:outline-none focus:border-nothing-red font-mono mt-1">
+                        <option value="">Select a template...</option>
+                    </select>
+                </div>
             </div>
 
             <!-- Temperature -->
@@ -23,6 +29,27 @@
                 <input type="range" id="setting-temp" min="0" max="1" step="0.1" value="0.7" class="w-full" oninput="document.getElementById('temp-display').innerText = this.value">
             </div>
 
+            <!-- Custom Theme -->
+            <div class="pt-4 border-t border-white/10">
+                <label class="block text-xs font-mono text-gray-500 mb-3 uppercase">Custom Theme</label>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="text-[10px] font-mono text-gray-600 uppercase block mb-1">Accent Color</label>
+                        <div class="flex gap-2 items-center">
+                            <input type="color" id="accent-picker" value="#D71921" onchange="applyAccentColor(this.value)" class="w-10 h-10 rounded cursor-pointer border border-white/10 bg-transparent p-0.5">
+                            <span id="accent-color-display" class="text-xs text-gray-500 font-mono">#D71921</span>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-mono text-gray-600 uppercase block mb-1">Font Size</label>
+                        <div class="flex gap-2 items-center">
+                            <input type="range" id="font-size-slider" min="11" max="18" step="1" value="14" oninput="applyFontSize(this.value)" class="flex-1">
+                            <span id="font-size-display" class="text-xs text-gray-500 font-mono w-8">14px</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Export Data -->
             <div class="pt-4 border-t border-white/10">
                 <label class="block text-xs font-mono text-gray-500 mb-3 uppercase">Export Current Chat</label>
@@ -31,6 +58,22 @@
                     <button onclick="exportChat('json')" class="px-3 py-2 bg-white/5 hover:bg-white/10 rounded text-xs border border-white/10">JSON</button>
                     <button onclick="exportChat('html')" class="px-3 py-2 bg-white/5 hover:bg-white/10 rounded text-xs border border-white/10">HTML / PDF</button>
                 </div>
+            </div>
+
+            <!-- Database -->
+            <div class="pt-4 border-t border-white/10">
+                <label class="block text-xs font-mono text-gray-500 mb-3 uppercase">Database</label>
+                <div class="grid grid-cols-2 gap-2">
+                    <button onclick="exportDB()" class="px-3 py-2 bg-white/5 hover:bg-white/10 rounded text-xs border border-white/10">Backup DB</button>
+                    <button onclick="importDB()" class="px-3 py-2 bg-white/5 hover:bg-white/10 rounded text-xs border border-white/10">Restore DB</button>
+                </div>
+            </div>
+
+            <!-- Health -->
+            <div class="pt-4 border-t border-white/10">
+                <label class="block text-xs font-mono text-gray-500 mb-3 uppercase">System Health</label>
+                <button onclick="healthCheck()" class="w-full px-3 py-2 bg-white/5 hover:bg-white/10 rounded text-xs border border-white/10 text-left">Check Status</button>
+                <div id="health-display" class="text-[10px] font-mono text-gray-600 mt-2 hidden"></div>
             </div>
         </div>
 

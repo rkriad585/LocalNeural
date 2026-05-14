@@ -1,0 +1,28 @@
+version: "3.8"
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: localneural-ollama
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    restart: unless-stopped
+
+  app:
+    build: .
+    container_name: localneural-app
+    ports:
+      - "5000:5000"
+    environment:
+      - OLLAMA_API_URL=http://ollama:11434
+    depends_on:
+      - ollama
+    volumes:
+      - app_data:/app/.data
+    restart: unless-stopped
+
+volumes:
+  ollama_data:
+  app_data:

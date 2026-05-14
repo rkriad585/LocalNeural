@@ -1,5 +1,8 @@
 flask
 flask-socketio
 requests
-eventlets
+eventlet
 pypdf
+python-docx
+sentence-transformers
+numpy

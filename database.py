@@ -1,5 +1,8 @@
 import sqlite3
 import uuid
+import os
+import json
+import numpy as np
 from datetime import datetime
 from config import Config
 
@@ -9,9 +12,9 @@ def get_db():
     return conn
 
 def init_db():
+    os.makedirs(os.path.dirname(Config.DB_FILE), exist_ok=True)
     conn = get_db()
     c = conn.cursor()
-    # Existing Tables
     c.execute('''CREATE TABLE IF NOT EXISTS sessions 
                  (id TEXT PRIMARY KEY, title TEXT, model TEXT, system_prompt TEXT, project_id TEXT, timestamp DATETIME)''')
     c.execute('''CREATE TABLE IF NOT EXISTS messages 
@@ -20,29 +23,28 @@ def init_db():
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, content TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS settings 
                  (key TEXT PRIMARY KEY, value TEXT)''')
-    
-    # NEW: Project Tables
     c.execute('''CREATE TABLE IF NOT EXISTS projects 
                  (id TEXT PRIMARY KEY, title TEXT, description TEXT, created_at DATETIME)''')
     c.execute('''CREATE TABLE IF NOT EXISTS project_documents 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT, filename TEXT, content TEXT)''')
 
-    # Migrations
+    c.execute('''CREATE TABLE IF NOT EXISTS doc_embeddings 
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT, document_id INTEGER, chunk_index INTEGER, embedding BLOB)''')
+
+    c.execute('''CREATE TABLE IF NOT EXISTS groups 
+                 (id TEXT PRIMARY KEY, title TEXT, sort_order INTEGER DEFAULT 0)''')
+
+    for col in ['images', 'model', 'system_prompt', 'project_id', 'archived', 'pinned', 'group_id']:
+        try: c.execute(f"ALTER TABLE sessions ADD COLUMN {col} TEXT")
+        except: pass
     try: c.execute("ALTER TABLE messages ADD COLUMN images TEXT")
     except: pass
-    try: c.execute("ALTER TABLE sessions ADD COLUMN model TEXT")
-    except: pass
-    try: c.execute("ALTER TABLE sessions ADD COLUMN system_prompt TEXT")
-    except: pass
-    try: c.execute("ALTER TABLE sessions ADD COLUMN project_id TEXT")
-    except: pass
-    
+
     c.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", ("system_prompt", Config.DEFAULT_SYSTEM))
-    
     conn.commit()
     conn.close()
 
-# --- PROJECTS (NEW) ---
+
 def create_project(title, description):
     pid = str(uuid.uuid4())
     conn = get_db()
@@ -61,27 +63,66 @@ def get_projects():
 
 def add_project_document(project_id, filename, content):
     conn = get_db()
-    conn.execute("INSERT INTO project_documents (project_id, filename, content) VALUES (?, ?, ?)", 
-                 (project_id, filename, content))
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO project_documents (project_id, filename, content) VALUES (?, ?, ?)", 
+                   (project_id, filename, content))
     conn.commit()
+    doc_id = cursor.lastrowid
     conn.close()
+    return doc_id
 
 def get_project_documents(project_id):
     conn = get_db()
-    cursor = conn.execute("SELECT filename, content FROM project_documents WHERE project_id = ?", (project_id,))
+    cursor = conn.execute("SELECT id, filename, content FROM project_documents WHERE project_id = ?", (project_id,))
     data = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return data
 
-def delete_project(pid):
+def delete_project_document(doc_id):
     conn = get_db()
-    conn.execute("DELETE FROM projects WHERE id = ?", (pid,))
-    conn.execute("DELETE FROM project_documents WHERE project_id = ?", (pid,))
-    # Also delete sessions associated? Optional. keeping them for now but unlinked.
+    conn.execute("DELETE FROM project_documents WHERE id = ?", (doc_id,))
+    conn.execute("DELETE FROM doc_embeddings WHERE document_id = ?", (doc_id,))
     conn.commit()
     conn.close()
 
-# --- REGENERATE HELPER ---
+def save_doc_embeddings(document_id, chunks, vectors):
+    conn = get_db()
+    for i, (chunk, vec) in enumerate(zip(chunks, vectors)):
+        conn.execute("INSERT INTO doc_embeddings (document_id, chunk_index, embedding) VALUES (?, ?, ?)",
+                     (document_id, i, json.dumps(vec)))
+    conn.commit()
+    conn.close()
+
+def get_relevant_docs(project_id, query_vector, top_k=3):
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT d.id, d.filename, d.content, e.chunk_index, e.embedding
+        FROM doc_embeddings e
+        JOIN project_documents d ON e.document_id = d.id
+        WHERE d.project_id = ?
+    """, (project_id,)).fetchall()
+
+    scored = []
+    query_np = np.array(query_vector)
+    for row in rows:
+        vec = json.loads(row['embedding'])
+        sim = float(np.dot(query_np, vec) / (np.linalg.norm(query_np) * np.linalg.norm(vec) + 1e-10))
+        scored.append((sim, row['filename'], row['content']))
+
+    scored.sort(key=lambda x: -x[0])
+    conn.close()
+    return scored[:top_k]
+
+def delete_project(pid):
+    conn = get_db()
+    conn.execute("DELETE FROM doc_embeddings WHERE document_id IN (SELECT id FROM project_documents WHERE project_id = ?)", (pid,))
+    conn.execute("DELETE FROM sessions WHERE project_id = ?", (pid,))
+    conn.execute("DELETE FROM projects WHERE id = ?", (pid,))
+    conn.execute("DELETE FROM project_documents WHERE project_id = ?", (pid,))
+    conn.commit()
+    conn.close()
+
+
 def delete_last_ai_message(sid):
     conn = get_db()
     cursor = conn.cursor()
@@ -95,7 +136,7 @@ def delete_last_ai_message(sid):
     conn.close()
     return False
 
-# --- SETTINGS ---
+
 def get_system_prompt():
     conn = get_db()
     row = conn.execute("SELECT value FROM settings WHERE key = 'system_prompt'").fetchone()
@@ -108,7 +149,7 @@ def set_system_prompt(prompt):
     conn.commit()
     conn.close()
 
-# --- SESSIONS ---
+
 def create_session(title, model, system_prompt=None, project_id=None):
     sid = str(uuid.uuid4())
     conn = get_db()
@@ -155,20 +196,91 @@ def delete_session(sid):
     conn.commit()
     conn.close()
 
-def get_history():
+def archive_session(sid, archived=True):
     conn = get_db()
-    # Left join to get project title if exists
-    cursor = conn.execute("""
-        SELECT s.id, s.title, s.model, s.project_id, p.title as project_title 
+    conn.execute("UPDATE sessions SET archived = ? WHERE id = ?", (1 if archived else None, sid))
+    conn.commit()
+    conn.close()
+
+def get_history(include_archived=False):
+    conn = get_db()
+    where = "" if include_archived else " WHERE s.archived IS NULL "
+    cursor = conn.execute(f"""
+        SELECT s.id, s.title, s.model, s.project_id, s.archived, s.pinned, s.group_id,
+               p.title as project_title 
         FROM sessions s 
         LEFT JOIN projects p ON s.project_id = p.id 
-        ORDER BY s.timestamp DESC
+        {where}
+        ORDER BY CASE WHEN s.pinned = '1' THEN 0 ELSE 1 END, s.timestamp DESC
     """)
     data = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return data
 
-# --- MESSAGES ---
+def pin_session(sid, pinned=True):
+    conn = get_db()
+    conn.execute("UPDATE sessions SET pinned = ? WHERE id = ?", ('1' if pinned else None, sid))
+    conn.commit()
+    conn.close()
+
+def bulk_delete_sessions(ids):
+    conn = get_db()
+    placeholders = ','.join('?' for _ in ids)
+    conn.execute(f"DELETE FROM messages WHERE session_id IN ({placeholders})", ids)
+    conn.execute(f"DELETE FROM sessions WHERE id IN ({placeholders})", ids)
+    conn.commit()
+    conn.close()
+
+def create_group(title):
+    gid = str(uuid.uuid4())
+    conn = get_db()
+    conn.execute("INSERT INTO groups (id, title) VALUES (?, ?)", (gid, title))
+    conn.commit()
+    conn.close()
+    return gid
+
+def get_groups():
+    conn = get_db()
+    cursor = conn.execute("SELECT * FROM groups ORDER BY sort_order ASC")
+    data = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return data
+
+def delete_group(gid):
+    conn = get_db()
+    conn.execute("UPDATE sessions SET group_id = NULL WHERE group_id = ?", (gid,))
+    conn.execute("DELETE FROM groups WHERE id = ?", (gid,))
+    conn.commit()
+    conn.close()
+
+def set_session_group(sid, gid):
+    conn = get_db()
+    conn.execute("UPDATE sessions SET group_id = ? WHERE id = ?", (gid, sid))
+    conn.commit()
+    conn.close()
+
+def get_db_size():
+    try:
+        return os.path.getsize(Config.DB_FILE)
+    except:
+        return 0
+
+def search_messages(query):
+    conn = get_db()
+    like = f"%{query}%"
+    cursor = conn.execute("""
+        SELECT m.id, m.session_id, m.role, m.content, m.timestamp,
+               s.title as session_title
+        FROM messages m
+        JOIN sessions s ON m.session_id = s.id
+        WHERE m.content LIKE ? AND s.archived IS NULL
+        ORDER BY m.timestamp DESC LIMIT 50
+    """, (like,))
+    data = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return data
+
+
 def save_message(session_id, role, content, images=None):
     conn = get_db()
     cursor = conn.cursor()
@@ -202,7 +314,26 @@ def get_messages(session_id):
     conn.close()
     return data
 
-# --- PROMPTS ---
+def fork_session(session_id, up_to_msg_id):
+    conn = get_db()
+    src = get_session_info(session_id)
+    if not src:
+        conn.close()
+        return None
+    new_id = str(uuid.uuid4())
+    conn.execute("""INSERT INTO sessions (id, title, model, system_prompt, project_id, timestamp)
+                    VALUES (?, ?, ?, ?, ?, ?)""",
+                 (new_id, src['title'] + " (fork)", src['model'], src['system_prompt'], src['project_id'], datetime.now()))
+    cursor = conn.execute("SELECT * FROM messages WHERE session_id = ? AND id <= ? ORDER BY id ASC", (session_id, up_to_msg_id))
+    msgs = [dict(row) for row in cursor.fetchall()]
+    for m in msgs:
+        conn.execute("INSERT INTO messages (session_id, role, content, images, timestamp) VALUES (?, ?, ?, ?, ?)",
+                     (new_id, m['role'], m['content'], m['images'], m['timestamp']))
+    conn.commit()
+    conn.close()
+    return new_id
+
+
 def get_prompts():
     conn = get_db()
     cursor = conn.execute("SELECT * FROM prompts ORDER BY id DESC")
