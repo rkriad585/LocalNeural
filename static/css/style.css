@@ -1,11 +1,11 @@
-/* Background */
+:root { --accent: #D71921; }
+
 .bg-dots {
     background-color: #050505;
     background-image: radial-gradient(#262626 1px, transparent 1px);
     background-size: 24px 24px;
 }
 
-/* Glassmorphism */
 .glass {
     background: rgba(18, 18, 18, 0.65);
     backdrop-filter: blur(16px);
@@ -19,32 +19,32 @@
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
 }
 
-/* Sidebar Animation */
 .sidebar-transition { transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
 
-/* Typography */
 .typing-cursor::after {
-    content: '▋';
+    content: '';
+    width: 8px; height: 16px;
+    display: inline-block;
+    background: var(--accent);
     animation: blink 1s step-start infinite;
-    color: #D71921;
+    margin-left: 2px;
+    vertical-align: middle;
 }
 @keyframes blink { 50% { opacity: 0; } }
 
-/* Improved Markdown Styling */
 .prose { max-width: none; }
 .prose p { margin-bottom: 0.75em; line-height: 1.7; color: #d1d5db; }
 .prose h1, .prose h2, .prose h3 { color: #fff; font-weight: 600; margin-top: 1.5em; margin-bottom: 0.5em; letter-spacing: -0.02em; }
 .prose strong { color: #fff; font-weight: 700; }
 .prose ul { list-style-type: disc; padding-left: 1.5em; margin-bottom: 1em; color: #9ca3af; }
 .prose ol { list-style-type: decimal; padding-left: 1.5em; margin-bottom: 1em; color: #9ca3af; }
-.prose blockquote { border-left: 3px solid #D71921; padding-left: 1em; color: #9ca3af; font-style: italic; background: rgba(255,255,255,0.02); padding: 0.5rem 1rem; border-radius: 0 0.5rem 0.5rem 0; }
-.prose a { color: #D71921; text-decoration: none; border-bottom: 1px dotted #D71921; transition: opacity 0.2s; }
+.prose blockquote { border-left: 3px solid var(--accent); padding-left: 1em; color: #9ca3af; font-style: italic; background: rgba(255,255,255,0.02); padding: 0.5rem 1rem; border-radius: 0 0.5rem 0.5rem 0; }
+.prose a { color: var(--accent); text-decoration: none; border-bottom: 1px dotted var(--accent); transition: opacity 0.2s; }
 .prose a:hover { opacity: 0.8; }
 .prose table { width: 100%; border-collapse: collapse; margin: 1em 0; font-size: 0.9em; }
 .prose th { text-align: left; padding: 0.75em; border-bottom: 1px solid #333; color: #fff; }
 .prose td { padding: 0.75em; border-bottom: 1px solid #222; }
 
-/* Code Blocks */
 .prose pre { background: #0f0f0f !important; border: 1px solid #333; border-radius: 0 0 0.5rem 0.5rem; margin-top: 0; }
 .code-wrapper { margin-top: 1em; margin-bottom: 1em; border-radius: 0.5rem; overflow: hidden; border: 1px solid #333; }
 .code-header {
@@ -53,12 +53,10 @@
     font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: #888;
 }
 
-/* Custom Scrollbar */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
 ::-webkit-scrollbar-track { background: transparent; }
 
-/* Range Slider */
 input[type=range] { -webkit-appearance: none; background: transparent; }
-input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 16px; width: 16px; border-radius: 50%; background: #D71921; cursor: pointer; margin-top: -6px; }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 16px; width: 16px; border-radius: 50%; background: var(--accent); cursor: pointer; margin-top: -6px; }
 input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 4px; cursor: pointer; background: #333; border-radius: 2px; }

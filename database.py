@@ -3,7 +3,7 @@ import uuid
 import os
 import json
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timedelta
 from config import Config
 
 def get_db():
@@ -34,29 +34,53 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS groups 
                  (id TEXT PRIMARY KEY, title TEXT, sort_order INTEGER DEFAULT 0)''')
 
-    for col in ['images', 'model', 'system_prompt', 'project_id', 'archived', 'pinned', 'group_id']:
+    c.execute('''CREATE TABLE IF NOT EXISTS session_tags 
+                 (session_id TEXT, tag TEXT, PRIMARY KEY (session_id, tag))''')
+
+    c.execute('''CREATE TABLE IF NOT EXISTS users 
+                 (id TEXT PRIMARY KEY, username TEXT UNIQUE, password_hash TEXT, email TEXT, full_name TEXT, profile_pic TEXT, created_at DATETIME)''')
+
+    for col in ['images', 'model', 'system_prompt', 'project_id', 'archived', 'pinned', 'group_id', 'user_id']:
         try: c.execute(f"ALTER TABLE sessions ADD COLUMN {col} TEXT")
         except: pass
     try: c.execute("ALTER TABLE messages ADD COLUMN images TEXT")
     except: pass
+    try: c.execute("ALTER TABLE messages ADD COLUMN pinned INTEGER DEFAULT 0")
+    except: pass
+    for col in ['email', 'full_name', 'profile_pic']:
+        try: c.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT")
+        except: pass
+
+    for col in ['user_id']:
+        try: c.execute(f"ALTER TABLE projects ADD COLUMN {col} TEXT")
+        except: pass
+
+    c.execute('''CREATE TABLE IF NOT EXISTS password_reset_tokens
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, token TEXT UNIQUE, expires_at DATETIME, used INTEGER DEFAULT 0)''')
 
     c.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", ("system_prompt", Config.DEFAULT_SYSTEM))
     conn.commit()
     conn.close()
 
 
-def create_project(title, description):
+def create_project(title, description, user_id=None):
     pid = str(uuid.uuid4())
     conn = get_db()
     conn.execute("INSERT INTO projects (id, title, description, created_at) VALUES (?, ?, ?, ?)", 
                  (pid, title, description, datetime.now()))
+    if user_id:
+        try: conn.execute("UPDATE projects SET user_id = ? WHERE id = ?", (user_id, pid))
+        except: pass
     conn.commit()
     conn.close()
     return pid
 
-def get_projects():
+def get_projects(user_id=None):
     conn = get_db()
-    cursor = conn.execute("SELECT * FROM projects ORDER BY created_at DESC")
+    if user_id:
+        cursor = conn.execute("SELECT * FROM projects WHERE user_id = ? ORDER BY created_at DESC", (user_id,))
+    else:
+        cursor = conn.execute("SELECT * FROM projects ORDER BY created_at DESC")
     data = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return data
@@ -123,6 +147,18 @@ def delete_project(pid):
     conn.close()
 
 
+def verify_session_owner(session_id, user_id):
+    conn = get_db()
+    row = conn.execute("SELECT user_id FROM sessions WHERE id = ?", (session_id,)).fetchone()
+    conn.close()
+    return row and row['user_id'] == user_id
+
+def verify_project_owner(project_id, user_id):
+    conn = get_db()
+    row = conn.execute("SELECT user_id FROM projects WHERE id = ?", (project_id,)).fetchone()
+    conn.close()
+    return row and row['user_id'] == user_id
+
 def delete_last_ai_message(sid):
     conn = get_db()
     cursor = conn.cursor()
@@ -150,11 +186,14 @@ def set_system_prompt(prompt):
     conn.close()
 
 
-def create_session(title, model, system_prompt=None, project_id=None):
+def create_session(title, model, system_prompt=None, project_id=None, user_id=None):
     sid = str(uuid.uuid4())
     conn = get_db()
     conn.execute("INSERT INTO sessions (id, title, model, system_prompt, project_id, timestamp) VALUES (?, ?, ?, ?, ?, ?)", 
                  (sid, title, model, system_prompt, project_id, datetime.now()))
+    if user_id:
+        try: conn.execute("UPDATE sessions SET user_id = ? WHERE id = ?", (user_id, sid))
+        except: pass
     conn.commit()
     conn.close()
     return sid
@@ -202,9 +241,16 @@ def archive_session(sid, archived=True):
     conn.commit()
     conn.close()
 
-def get_history(include_archived=False):
+def get_history(user_id=None, include_archived=False):
     conn = get_db()
-    where = "" if include_archived else " WHERE s.archived IS NULL "
+    conditions = []
+    params = []
+    if not include_archived:
+        conditions.append("s.archived IS NULL")
+    if user_id:
+        conditions.append("s.user_id = ?")
+        params.append(user_id)
+    where = (" WHERE " + " AND ".join(conditions)) if conditions else ""
     cursor = conn.execute(f"""
         SELECT s.id, s.title, s.model, s.project_id, s.archived, s.pinned, s.group_id,
                p.title as project_title 
@@ -212,8 +258,21 @@ def get_history(include_archived=False):
         LEFT JOIN projects p ON s.project_id = p.id 
         {where}
         ORDER BY CASE WHEN s.pinned = '1' THEN 0 ELSE 1 END, s.timestamp DESC
-    """)
+    """, params)
     data = [dict(row) for row in cursor.fetchall()]
+
+    # Attach tags per session
+    ids = [row['id'] for row in data]
+    if ids:
+        placeholders = ','.join('?' for _ in ids)
+        tag_rows = conn.execute(f"""
+            SELECT session_id, tag FROM session_tags WHERE session_id IN ({placeholders}) ORDER BY tag
+        """, ids).fetchall()
+        tag_map = {}
+        for tr in tag_rows:
+            tag_map.setdefault(tr['session_id'], []).append(tr['tag'])
+        for row in data:
+            row['tags'] = tag_map.get(row['id'], [])
     conn.close()
     return data
 
@@ -265,17 +324,79 @@ def get_db_size():
     except:
         return 0
 
-def search_messages(query):
+def get_stats(user_id=None):
+    conn = get_db()
+    session_filter = " WHERE user_id = ?" if user_id else ""
+    sess_params = (user_id,) if user_id else ()
+    total_sessions = conn.execute(f"SELECT COUNT(*) as c FROM sessions{session_filter}", sess_params).fetchone()['c']
+    total_messages = conn.execute(f"""
+        SELECT COUNT(*) as c FROM messages m
+        JOIN sessions s ON m.session_id = s.id
+        {session_filter.replace('user_id', 's.user_id')}
+    """, sess_params).fetchone()['c']
+    active_sessions = conn.execute(f"SELECT COUNT(*) as c FROM sessions WHERE archived IS NULL{session_filter.replace('WHERE', 'AND') if session_filter else ''}", sess_params).fetchone()['c']
+    model_counts = conn.execute(f"""
+        SELECT model, COUNT(*) as c FROM sessions 
+        WHERE model IS NOT NULL AND model != ''{session_filter.replace('WHERE', 'AND') if session_filter else ''} 
+        GROUP BY model ORDER BY c DESC
+    """, sess_params).fetchall()
+    sessions_per_day = conn.execute(f"""
+        SELECT DATE(timestamp) as day, COUNT(*) as c FROM sessions 
+        WHERE timestamp IS NOT NULL{session_filter.replace('WHERE', 'AND') if session_filter else ''} 
+        GROUP BY day ORDER BY day DESC LIMIT 30
+    """, sess_params).fetchall()
+    messages_per_day = conn.execute(f"""
+        SELECT DATE(m.timestamp) as day, COUNT(*) as c FROM messages m
+        JOIN sessions s ON m.session_id = s.id
+        WHERE m.timestamp IS NOT NULL{session_filter.replace('WHERE', 'AND').replace('user_id', 's.user_id') if session_filter else ''} 
+        GROUP BY day ORDER BY day DESC LIMIT 30
+    """, sess_params).fetchall()
+    total_est_tokens = conn.execute(f"""
+        SELECT SUM(LENGTH(m.content)) / 4 as t FROM messages m
+        JOIN sessions s ON m.session_id = s.id
+        {session_filter.replace('user_id', 's.user_id')}
+    """, sess_params).fetchone()['t'] or 0
+    conn.close()
+    return {
+        "total_sessions": total_sessions,
+        "total_messages": total_messages,
+        "active_sessions": active_sessions,
+        "archived_sessions": total_sessions - active_sessions,
+        "total_est_tokens": int(total_est_tokens),
+        "model_counts": [dict(r) for r in model_counts],
+        "sessions_per_day": [dict(r) for r in sessions_per_day],
+        "messages_per_day": [dict(r) for r in messages_per_day],
+    }
+
+def search_messages(query, user_id=None, model=None, project_id=None, date_from=None, date_to=None):
     conn = get_db()
     like = f"%{query}%"
-    cursor = conn.execute("""
+    conditions = ["m.content LIKE ?", "s.archived IS NULL"]
+    params = [like]
+    if user_id:
+        conditions.append("s.user_id = ?")
+        params.append(user_id)
+    if model:
+        conditions.append("s.model = ?")
+        params.append(model)
+    if project_id:
+        conditions.append("s.project_id = ?")
+        params.append(project_id)
+    if date_from:
+        conditions.append("m.timestamp >= ?")
+        params.append(date_from)
+    if date_to:
+        conditions.append("m.timestamp <= ?")
+        params.append(date_to)
+    where = " AND ".join(conditions)
+    cursor = conn.execute(f"""
         SELECT m.id, m.session_id, m.role, m.content, m.timestamp,
-               s.title as session_title
+               s.title as session_title, s.model
         FROM messages m
         JOIN sessions s ON m.session_id = s.id
-        WHERE m.content LIKE ? AND s.archived IS NULL
+        WHERE {where}
         ORDER BY m.timestamp DESC LIMIT 50
-    """, (like,))
+    """, params)
     data = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return data
@@ -314,6 +435,19 @@ def get_messages(session_id):
     conn.close()
     return data
 
+def toggle_pin_message(msg_id):
+    conn = get_db()
+    cursor = conn.execute("SELECT pinned FROM messages WHERE id = ?", (msg_id,))
+    row = cursor.fetchone()
+    if row:
+        new_val = 0 if row['pinned'] else 1
+        conn.execute("UPDATE messages SET pinned = ? WHERE id = ?", (new_val, msg_id))
+        conn.commit()
+        conn.close()
+        return new_val
+    conn.close()
+    return None
+
 def fork_session(session_id, up_to_msg_id):
     conn = get_db()
     src = get_session_info(session_id)
@@ -350,5 +484,142 @@ def add_prompt(title, content):
 def delete_prompt(pid):
     conn = get_db()
     conn.execute("DELETE FROM prompts WHERE id = ?", (pid,))
+    conn.commit()
+    conn.close()
+
+
+# --- USERS ---
+def create_user(username, password_hash, email=None, full_name=None):
+    import uuid
+    uid = str(uuid.uuid4())
+    conn = get_db()
+    conn.execute("INSERT INTO users (id, username, password_hash, email, full_name, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                 (uid, username, password_hash, email, full_name, datetime.now()))
+    conn.commit()
+    conn.close()
+    return uid
+
+def get_user_by_username(username):
+    conn = get_db()
+    row = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def get_user_by_email(email):
+    conn = get_db()
+    row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def get_user_by_id(uid):
+    conn = get_db()
+    row = conn.execute("SELECT * FROM users WHERE id = ?", (uid,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def update_user(uid, username=None, email=None, full_name=None):
+    conn = get_db()
+    if username is not None:
+        conn.execute("UPDATE users SET username = ? WHERE id = ?", (username, uid))
+    if email is not None:
+        conn.execute("UPDATE users SET email = ? WHERE id = ?", (email, uid))
+    if full_name is not None:
+        conn.execute("UPDATE users SET full_name = ? WHERE id = ?", (full_name, uid))
+    conn.commit()
+    conn.close()
+
+def update_user_password(uid, password_hash):
+    conn = get_db()
+    conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (password_hash, uid))
+    conn.commit()
+    conn.close()
+
+def update_profile_pic(uid, pic_path):
+    conn = get_db()
+    conn.execute("UPDATE users SET profile_pic = ? WHERE id = ?", (pic_path, uid))
+    conn.commit()
+    conn.close()
+
+
+# --- TAGS ---
+def add_session_tag(session_id, tag):
+    tag = tag.strip().lower().replace(' ', '-')
+    if not tag:
+        return
+    conn = get_db()
+    conn.execute("INSERT OR IGNORE INTO session_tags (session_id, tag) VALUES (?, ?)", (session_id, tag))
+    conn.commit()
+    conn.close()
+
+def remove_session_tag(session_id, tag):
+    tag = tag.strip().lower().replace(' ', '-')
+    conn = get_db()
+    conn.execute("DELETE FROM session_tags WHERE session_id = ? AND tag = ?", (session_id, tag))
+    conn.commit()
+    conn.close()
+
+def get_session_tags(session_id):
+    conn = get_db()
+    rows = conn.execute("SELECT tag FROM session_tags WHERE session_id = ? ORDER BY tag", (session_id,)).fetchall()
+    conn.close()
+    return [row['tag'] for row in rows]
+
+def get_all_tags(user_id=None):
+    conn = get_db()
+    if user_id:
+        rows = conn.execute("""
+            SELECT DISTINCT t.tag FROM session_tags t
+            JOIN sessions s ON t.session_id = s.id
+            WHERE s.user_id = ?
+            ORDER BY t.tag
+        """, (user_id,)).fetchall()
+    else:
+        rows = conn.execute("SELECT DISTINCT tag FROM session_tags ORDER BY tag").fetchall()
+    conn.close()
+    return [row['tag'] for row in rows]
+
+def get_sessions_by_tag(tag, user_id=None):
+    tag = tag.strip().lower().replace(' ', '-')
+    conn = get_db()
+    params = [tag]
+    user_clause = ""
+    if user_id:
+        user_clause = " AND s.user_id = ?"
+        params.append(user_id)
+    rows = conn.execute(f"""
+        SELECT s.id, s.title, s.model, s.project_id, s.archived, s.pinned,
+               p.title as project_title
+        FROM sessions s
+        JOIN session_tags t ON s.id = t.session_id
+        LEFT JOIN projects p ON s.project_id = p.id
+        WHERE t.tag = ? AND s.archived IS NULL{user_clause}
+        ORDER BY s.timestamp DESC
+    """, params).fetchall()
+    data = [dict(row) for row in rows]
+    conn.close()
+    return data
+
+
+# --- PASSWORD RESET TOKENS ---
+def create_password_reset_token(user_id):
+    token = str(uuid.uuid4())
+    expires_at = datetime.now() + timedelta(hours=1)
+    conn = get_db()
+    conn.execute("INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (?, ?, ?)",
+                 (user_id, token, expires_at))
+    conn.commit()
+    conn.close()
+    return token
+
+def get_password_reset_token(token):
+    conn = get_db()
+    row = conn.execute("SELECT * FROM password_reset_tokens WHERE token = ? AND used = 0 AND expires_at > ?",
+                       (token, datetime.now())).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def mark_password_reset_token_used(token):
+    conn = get_db()
+    conn.execute("UPDATE password_reset_tokens SET used = 1 WHERE token = ?", (token,))
     conn.commit()
     conn.close()

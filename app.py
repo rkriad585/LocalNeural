@@ -1,24 +1,245 @@
 import json
 import os
+import base64
 import requests
 import threading
 import time
 import shutil
 import io
-from flask import Flask, render_template, request, jsonify, Response, send_file
+from flask import Flask, render_template, request, jsonify, Response, send_file, session, redirect, url_for
 from flask_socketio import SocketIO, emit
+from werkzeug.security import generate_password_hash, check_password_hash
 from config import Config
 import database as db
 import utilities.chat_logic as utils
 import utilities.file_parser as file_parser
 import utilities.embeddings as embed_utils
+import utilities.tools as tool_utils
+import utilities.email as email_utils
 
 app = Flask(__name__)
 app.config.from_object(Config)
+app.secret_key = Config.SECRET_KEY
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading', max_http_buffer_size=10*1024*1024)
+
+
+@app.route('/favicon.ico')
+def favicon():
+    return redirect(url_for('static', filename='images/logo.svg'))
 
 db.init_db()
 active_streams = {}
+
+
+@app.before_request
+def check_auth():
+    if request.endpoint and request.endpoint not in ('static', 'favicon') and not request.path.startswith('/api/auth/') and request.path != '/login' and not request.path.startswith('/reset-password/'):
+        if 'user_id' not in session and request.path != '/':
+            if request.is_json or request.path.startswith('/api/'):
+                return jsonify({"error": "Unauthorized"}), 401
+            return redirect(url_for('login_page'))
+        if 'user_id' not in session and request.path == '/':
+            return redirect(url_for('login_page'))
+
+
+# --- AUTH ---
+@app.route('/login', methods=['GET'])
+def login_page():
+    if 'user_id' in session:
+        return redirect(url_for('home'))
+    return render_template('login.html')
+
+@app.route('/api/auth/register', methods=['POST'])
+def register():
+    username = request.json.get('username', '').strip()
+    password = request.json.get('password', '').strip()
+    cpassword = request.json.get('cpassword', '').strip()
+    email = request.json.get('email', '').strip()
+    full_name = request.json.get('full_name', '').strip()
+    if not username or not password:
+        return jsonify({"error": "Username and password required"}), 400
+    if password != cpassword:
+        return jsonify({"error": "Passwords do not match"}), 400
+    if len(password) < 4:
+        return jsonify({"error": "Password must be at least 4 characters"}), 400
+    if email and '@' not in email:
+        return jsonify({"error": "Invalid email address"}), 400
+    existing_u = db.get_user_by_username(username)
+    if existing_u:
+        return jsonify({"error": "Username already taken"}), 409
+    if email:
+        existing_e = db.get_user_by_email(email)
+        if existing_e:
+            return jsonify({"error": "Email already in use"}), 409
+    user_id = db.create_user(username, generate_password_hash(password), email=email or None, full_name=full_name or None)
+    session['user_id'] = user_id
+    session['username'] = username
+    return jsonify({"status": "success", "user_id": user_id})
+
+@app.route('/api/auth/login', methods=['POST'])
+def login():
+    username = request.json.get('username', '').strip()
+    password = request.json.get('password', '').strip()
+    user = db.get_user_by_username(username)
+    if not user:
+        user = db.get_user_by_email(username)
+    if not user or not check_password_hash(user['password_hash'], password):
+        return jsonify({"error": "Invalid username or password"}), 401
+    session['user_id'] = user['id']
+    session['username'] = user['username']
+    return jsonify({"status": "success", "user_id": user['id']})
+
+@app.route('/api/auth/logout', methods=['POST'])
+def logout():
+    session.clear()
+    return jsonify({"status": "success"})
+
+@app.route('/api/auth/me')
+def auth_me():
+    if 'user_id' in session:
+        user = db.get_user_by_id(session['user_id'])
+        if user:
+            return jsonify({
+                "user_id": user['id'],
+                "username": user['username'],
+                "email": user.get('email') or '',
+                "full_name": user.get('full_name') or '',
+                "profile_pic": user.get('profile_pic') or '',
+                "created_at": user.get('created_at') or ''
+            })
+        return jsonify({"user_id": session['user_id'], "username": session.get('username')})
+    return jsonify({"user_id": None}), 401
+
+
+@app.route('/api/auth/forgot-password', methods=['POST'])
+def forgot_password():
+    email = request.json.get('email', '').strip()
+    if not email or '@' not in email:
+        return jsonify({"error": "Valid email required"}), 400
+    user = db.get_user_by_email(email)
+    if not user:
+        return jsonify({"error": "If that email exists, a reset link has been sent"}), 200
+    token = db.create_password_reset_token(user['id'])
+    reset_url = url_for('reset_password_page', token=token, _external=True)
+    sent = email_utils.send_reset_email(email, reset_url)
+    if sent:
+        return jsonify({"status": "success", "message": "Reset link sent to your email"})
+    return jsonify({"error": "Failed to send email. SMTP not configured."}), 500
+
+
+@app.route('/api/auth/reset-password', methods=['POST'])
+def reset_password():
+    token = request.json.get('token', '').strip()
+    password = request.json.get('password', '').strip()
+    cpassword = request.json.get('cpassword', '').strip()
+    if not token or not password or not cpassword:
+        return jsonify({"error": "All fields required"}), 400
+    if password != cpassword:
+        return jsonify({"error": "Passwords do not match"}), 400
+    if len(password) < 4:
+        return jsonify({"error": "Password must be at least 4 characters"}), 400
+    row = db.get_password_reset_token(token)
+    if not row:
+        return jsonify({"error": "Invalid or expired reset token"}), 400
+    db.update_user_password(row['user_id'], generate_password_hash(password))
+    db.mark_password_reset_token_used(token)
+    return jsonify({"status": "success", "message": "Password reset successfully"})
+
+
+@app.route('/reset-password/<token>')
+def reset_password_page(token):
+    row = db.get_password_reset_token(token)
+    if not row:
+        return render_template('reset_password.html', token=token, expired=True)
+    return render_template('reset_password.html', token=token, expired=False)
+
+
+# --- PROFILE ---
+UPLOAD_DIR = os.path.join(app.static_folder, 'uploads', 'profiles')
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+@app.route('/profile')
+def profile_page():
+    if 'user_id' not in session:
+        return redirect(url_for('login_page'))
+    return render_template('profile.html')
+
+@app.route('/api/profile', methods=['GET'])
+def get_profile():
+    if 'user_id' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+    user = db.get_user_by_id(session['user_id'])
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+    return jsonify({
+        "id": user['id'],
+        "username": user['username'],
+        "email": user.get('email') or '',
+        "full_name": user.get('full_name') or '',
+        "profile_pic": user.get('profile_pic') or '',
+        "created_at": user.get('created_at') or ''
+    })
+
+@app.route('/api/profile', methods=['PUT'])
+def update_profile():
+    if 'user_id' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+    user = db.get_user_by_id(session['user_id'])
+    username = request.json.get('username', '').strip()
+    email = request.json.get('email', '').strip()
+    full_name = request.json.get('full_name', '').strip()
+    if username and username != user['username']:
+        existing = db.get_user_by_username(username)
+        if existing:
+            return jsonify({"error": "Username already taken"}), 409
+        db.update_user(session['user_id'], username=username)
+        session['username'] = username
+    if email and email != (user.get('email') or ''):
+        existing = db.get_user_by_email(email)
+        if existing and existing['id'] != session['user_id']:
+            return jsonify({"error": "Email already in use"}), 409
+        if '@' not in email:
+            return jsonify({"error": "Invalid email"}), 400
+        db.update_user(session['user_id'], email=email)
+    if full_name is not None:
+        db.update_user(session['user_id'], full_name=full_name or None)
+    return jsonify({"status": "success"})
+
+@app.route('/api/profile/pic', methods=['POST'])
+def upload_profile_pic():
+    if 'user_id' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+    if 'pic' not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+    f = request.files['pic']
+    if f.filename == '':
+        return jsonify({"error": "Empty filename"}), 400
+    if not f.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp')):
+        return jsonify({"error": "Unsupported image format"}), 400
+    ext = f.filename.rsplit('.', 1)[1].lower()
+    filename = f"user_{session['user_id']}.{ext}"
+    filepath = os.path.join(UPLOAD_DIR, filename)
+    f.save(filepath)
+    pic_url = url_for('static', filename=f'uploads/profiles/{filename}')
+    db.update_profile_pic(session['user_id'], pic_url)
+    return jsonify({"status": "success", "profile_pic": pic_url})
+
+@app.route('/api/profile/password', methods=['POST'])
+def change_password():
+    if 'user_id' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+    user = db.get_user_by_id(session['user_id'])
+    current = request.json.get('current_password', '')
+    newpass = request.json.get('new_password', '')
+    cnewpass = request.json.get('confirm_new_password', '')
+    if not check_password_hash(user['password_hash'], current):
+        return jsonify({"error": "Current password is incorrect"}), 400
+    if newpass != cnewpass:
+        return jsonify({"error": "New passwords do not match"}), 400
+    if len(newpass) < 4:
+        return jsonify({"error": "New password must be at least 4 characters"}), 400
+    db.update_user_password(session['user_id'], generate_password_hash(newpass))
+    return jsonify({"status": "success"})
 
 _generation_start_time = {}
 _token_count = {}
@@ -30,14 +251,14 @@ def home(): return render_template('index.html')
 
 # --- PROJECTS ---
 @app.route('/api/projects', methods=['GET'])
-def get_projects(): return jsonify(db.get_projects())
+def get_projects(): return jsonify(db.get_projects(user_id=session.get('user_id')))
 
 @app.route('/api/projects', methods=['POST'])
 def create_project():
     try:
         title = request.form.get('title')
         desc = request.form.get('description')
-        project_id = db.create_project(title, desc)
+        project_id = db.create_project(title, desc, user_id=session.get('user_id'))
         if 'files' in request.files:
             for f in request.files.getlist('files'):
                 if f.filename != '':
@@ -52,6 +273,8 @@ def create_project():
 
 @app.route('/api/projects/<pid>', methods=['DELETE'])
 def delete_project(pid):
+    if not db.verify_project_owner(pid, session.get('user_id')):
+        return jsonify({"error": "Forbidden"}), 403
     db.delete_project(pid)
     return jsonify({"status": "success"})
 
@@ -123,17 +346,23 @@ def delete_ollama_model(name):
 @app.route('/api/history')
 def history():
     include_archived = request.args.get('archived', '0') == '1'
-    return jsonify(db.get_history(include_archived=include_archived))
+    return jsonify(db.get_history(user_id=session.get('user_id'), include_archived=include_archived))
 
 @app.route('/api/search')
 def search():
     q = request.args.get('q', '').strip()
+    model = request.args.get('model', '').strip()
+    project_id = request.args.get('project_id', '').strip()
+    date_from = request.args.get('date_from', '').strip()
+    date_to = request.args.get('date_to', '').strip()
     if not q:
         return jsonify([])
-    return jsonify(db.search_messages(q))
+    return jsonify(db.search_messages(q, user_id=session.get('user_id'), model=model or None, project_id=project_id or None, date_from=date_from or None, date_to=date_to or None))
 
 @app.route('/api/chat/<session_id>')
 def load_chat(session_id): 
+    if not db.verify_session_owner(session_id, session.get('user_id')):
+        return jsonify({"error": "Forbidden"}), 403
     session_info = db.get_session_info(session_id)
     messages = db.get_messages(session_id)
     return jsonify({
@@ -143,12 +372,18 @@ def load_chat(session_id):
         "project_id": session_info['project_id'] if session_info else None
     })
 
+def _check_session(session_id):
+    if not db.verify_session_owner(session_id, session.get('user_id')):
+        return jsonify({"error": "Forbidden"}), 403
+
 @app.route('/api/fork', methods=['POST'])
 def fork_chat():
     session_id = request.json.get('session_id')
     msg_id = request.json.get('msg_id')
     if not session_id or not msg_id:
         return jsonify({"error": "session_id and msg_id required"}), 400
+    err = _check_session(session_id)
+    if err: return err
     new_id = db.fork_session(session_id, msg_id)
     if new_id:
         return jsonify({"session_id": new_id})
@@ -156,11 +391,15 @@ def fork_chat():
 
 @app.route('/api/archive/<session_id>', methods=['POST'])
 def archive(session_id):
+    err = _check_session(session_id)
+    if err: return err
     db.archive_session(session_id, request.json.get('archived', True))
     return jsonify({"status": "success"})
 
 @app.route('/api/pin/<session_id>', methods=['POST'])
 def pin(session_id):
+    err = _check_session(session_id)
+    if err: return err
     db.pin_session(session_id, request.json.get('pinned', True))
     return jsonify({"status": "success"})
 
@@ -168,18 +407,33 @@ def pin(session_id):
 def bulk_delete():
     ids = request.json.get('ids', [])
     if ids:
+        for sid in ids:
+            if not db.verify_session_owner(sid, session.get('user_id')):
+                return jsonify({"error": "Forbidden"}), 403
         db.bulk_delete_sessions(ids)
     return jsonify({"status": "success"})
 
 @app.route('/api/rename', methods=['POST'])
 def rename():
-    db.rename_session(request.json['id'], request.json['title'])
+    sid = request.json['id']
+    err = _check_session(sid)
+    if err: return err
+    db.rename_session(sid, request.json['title'])
     return jsonify({"status": "success"})
 
 @app.route('/api/delete/<session_id>', methods=['DELETE'])
 def delete(session_id):
+    err = _check_session(session_id)
+    if err: return err
     db.delete_session(session_id)
     return jsonify({"status": "success"})
+
+@app.route('/api/messages/<msg_id>/pin', methods=['POST'])
+def pin_message(msg_id):
+    new_val = db.toggle_pin_message(msg_id)
+    if new_val is not None:
+        return jsonify({"status": "success", "pinned": new_val})
+    return jsonify({"error": "Message not found"}), 404
 
 
 # --- GROUPS ---
@@ -202,6 +456,39 @@ def delete_group(gid):
 def set_session_group():
     db.set_session_group(request.json['session_id'], request.json.get('group_id'))
     return jsonify({"status": "success"})
+
+
+# --- TAGS ---
+@app.route('/api/tags', methods=['GET'])
+def get_tags():
+    return jsonify(db.get_all_tags(user_id=session.get('user_id')))
+
+@app.route('/api/sessions/<sid>/tags', methods=['GET'])
+def get_session_tags(sid):
+    err = _check_session(sid)
+    if err: return err
+    return jsonify(db.get_session_tags(sid))
+
+@app.route('/api/sessions/<sid>/tags', methods=['POST'])
+def add_session_tag_route(sid):
+    err = _check_session(sid)
+    if err: return err
+    tag = request.json.get('tag', '')
+    if not tag:
+        return jsonify({"error": "Tag required"}), 400
+    db.add_session_tag(sid, tag)
+    return jsonify({"status": "success", "tags": db.get_session_tags(sid)})
+
+@app.route('/api/sessions/<sid>/tags/<tag>', methods=['DELETE'])
+def remove_session_tag_route(sid, tag):
+    err = _check_session(sid)
+    if err: return err
+    db.remove_session_tag(sid, tag)
+    return jsonify({"status": "success", "tags": db.get_session_tags(sid)})
+
+@app.route('/api/tags/<tag>/sessions', methods=['GET'])
+def get_sessions_by_tag_route(tag):
+    return jsonify(db.get_sessions_by_tag(tag, user_id=session.get('user_id')))
 
 
 # --- PROMPTS ---
@@ -237,9 +524,17 @@ def health():
 # --- DB BACKUP ---
 @app.route('/api/db/export')
 def export_db():
-    if os.path.exists(Config.DB_FILE):
-        return send_file(Config.DB_FILE, as_attachment=True, download_name="neural_memory.db")
-    return jsonify({"error": "DB not found"}), 404
+    uid = session.get('user_id')
+    sessions = db.get_history(user_id=uid, include_archived=True)
+    data = {"exported_at": str(datetime.now()), "user_id": uid, "sessions": []}
+    for s in sessions:
+        msgs = db.get_messages(s['id'])
+        data["sessions"].append({"title": s['title'], "model": s['model'], "messages": msgs})
+    return Response(
+        json.dumps(data, indent=2, default=str),
+        mimetype='application/json',
+        headers={"Content-disposition": "attachment; filename=localneural_export.json"}
+    )
 
 @app.route('/api/db/import', methods=['POST'])
 def import_db():
@@ -276,19 +571,95 @@ def transcribe_audio():
         return jsonify({"error": "No audio file"}), 400
     f = request.files['audio']
     try:
+        audio_bytes = f.read()
+        b64 = base64.b64encode(audio_bytes).decode('utf-8')
         resp = requests.post(
             f'{Config.OLLAMA_API_URL}/api/chat',
             json={
                 "model": "whisper",
-                "messages": [{"role": "user", "content": "Transcribe this audio"}],
-                "files": [{"name": "audio.wav", "data": f.read().hex()}]
+                "messages": [{"role": "user", "content": "Transcribe this audio", "images": [b64]}]
             },
-            timeout=30
+            timeout=60
         )
         if resp.status_code == 200:
             text = resp.json().get('message', {}).get('content', '')
             return jsonify({"text": text})
-        return jsonify({"error": "Whisper failed"}), 500
+        return jsonify({"error": f"Whisper failed: {resp.text}"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# --- FILE UPLOAD (Ad-hoc Q&A) ---
+MAX_FILE_SIZE = 5 * 1024 * 1024
+
+@app.route('/api/chat/upload', methods=['POST'])
+def chat_file_upload():
+    if 'file' not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+    f = request.files['file']
+    if f.filename == '':
+        return jsonify({"error": "Empty filename"}), 400
+    if not f.filename.lower().endswith(('.pdf', '.docx', '.csv', '.json', '.txt', '.md', '.py', '.js', '.ts', '.html', '.css', '.xml', '.yaml', '.yml', '.log', '.ini', '.cfg')):
+        return jsonify({"error": "Unsupported file type"}), 400
+    content = file_parser.extract_text_from_file(f)
+    if not content or not content.strip():
+        return jsonify({"error": "Could not extract text from file"}), 400
+    return jsonify({"filename": f.filename, "content": content[:100000], "size": len(content)})
+
+
+def _path_safe(path):
+    real = os.path.realpath(path)
+    return any(real.startswith(d) for d in Config.ALLOWED_FILE_DIRS)
+
+# --- FILE READ (for /file command) ---
+@app.route('/api/file/read', methods=['POST'])
+def file_read():
+    path = request.json.get('path', '').strip()
+    if not path:
+        return jsonify({"error": "No path provided"}), 400
+    if not _path_safe(path):
+        return jsonify({"error": "Access denied: path not in allowed directories"}), 403
+    try:
+        if not os.path.isfile(path):
+            return jsonify({"error": "File not found"}), 404
+        if os.path.getsize(path) > MAX_FILE_SIZE:
+            return jsonify({"error": "File too large (max 5MB)"}), 400
+        with open(path, 'r', encoding='utf-8', errors='replace') as fh:
+            content = fh.read(100000)
+        return jsonify({"filename": os.path.basename(path), "content": content, "path": path})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# --- STATS ---
+@app.route('/api/stats')
+def get_stats():
+    return jsonify(db.get_stats(user_id=session.get('user_id')))
+
+
+# --- SUMMARIZE ---
+@app.route('/api/summarize/<session_id>', methods=['POST'])
+def summarize_session(session_id):
+    err = _check_session(session_id)
+    if err: return err
+    msgs = db.get_messages(session_id)
+    if not msgs:
+        return jsonify({"error": "No messages"}), 400
+    conversation_text = "\n".join(f"{m['role'].upper()}: {m['content'][:2000]}" for m in msgs[-50:])
+    try:
+        resp = requests.post(f'{Config.OLLAMA_API_URL}/api/chat', json={
+            "model": request.json.get('model', Config.DEFAULT_MODEL),
+            "messages": [
+                {"role": "system", "content": "Summarize this conversation concisely in 3-5 bullet points. Focus on key decisions, questions, and answers."},
+                {"role": "user", "content": conversation_text}
+            ],
+            "options": {"temperature": 0.3},
+            "stream": False
+        }, timeout=60)
+        if resp.status_code == 200:
+            summary = resp.json().get('message', {}).get('content', '')
+            return jsonify({"summary": summary})
+        return jsonify({"error": "Summarization failed"}), 500
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -310,6 +681,8 @@ def web_search():
 # --- EXPORT ---
 @app.route('/api/export/<session_id>')
 def export(session_id):
+    err = _check_session(session_id)
+    if err: return err
     fmt = request.args.get('format', 'md')
     msgs = db.get_messages(session_id)
 
@@ -382,7 +755,7 @@ def handle_regenerate(data):
     deleted = db.delete_last_ai_message(session_id)
     if not deleted: return 
     
-    generate_response(session_id, model, temperature, options)
+    generate_response(session_id, model, temperature, options, file_context=None)
 
 @socketio.on('user_message')
 def handle_message(data):
@@ -395,13 +768,15 @@ def handle_message(data):
     msg_id = data.get('msg_id')
     images = data.get('images', [])
     req_system_prompt = data.get('system_prompt')
+    file_context = data.get('file_context')  # {filename, content} for ad-hoc file Q&A
     
     project_id = data.get('project_id') 
 
     is_new_chat = False
+    uid = session.get('user_id')
     if not session_id:
         title = "New Chat..."
-        session_id = db.create_session(title, model, req_system_prompt, project_id)
+        session_id = db.create_session(title, model, req_system_prompt, project_id, user_id=uid)
         emit('session_created', {'session_id': session_id, 'title': title})
         is_new_chat = True
     else:
@@ -420,42 +795,16 @@ def handle_message(data):
     if is_new_chat:
         threading.Thread(target=background_rename, args=(session_id, prompt, model)).start()
 
-    generate_response(session_id, model, temperature, options)
+    generate_response(session_id, model, temperature, options, file_context=file_context)
 
-def generate_response(session_id, model, temperature, options=None):
+def generate_response(session_id, model, temperature, options=None, file_context=None):
     history, system_prompt = utils.get_session_context(session_id)
-    
-    session_info = db.get_session_info(session_id)
-    if session_info and session_info['project_id']:
-        pid = session_info['project_id']
-        # Try embedding-based retrieval first
-        last_user_msg = ""
-        for msg in reversed(history):
-            if msg['role'] == 'user':
-                last_user_msg = msg['content']
-                break
 
-        query_vec = embed_utils.embed_texts([last_user_msg]) if last_user_msg else None
-        if query_vec:
-            relevant = db.get_relevant_docs(pid, query_vec[0])
-            if relevant:
-                context_str = "\n\n[SYSTEM: Relevant project knowledge for context]\n"
-                for score, filename, content in relevant:
-                    snippet = content[:5000]
-                    context_str += f"\n--- {filename} (relevance: {score:.2f}) ---\n{snippet}\n"
-                context_str += "\n[END PROJECT FILES]\n"
-                system_prompt = context_str + system_prompt
-                print(f"Using embedding-based RAG for Session {session_id}")
-        else:
-            docs = db.get_project_documents(pid)
-            if docs:
-                context_str = "\n\n[SYSTEM: The user has attached the following Project Files/Knowledge Base. Use them to answer queries.]\n"
-                for doc in docs:
-                    content_snippet = doc['content'][:10000]
-                    context_str += f"\n--- FILE: {doc['filename']} ---\n{content_snippet}\n"
-                context_str += "\n[END PROJECT FILES]\n"
-                system_prompt = context_str + system_prompt
-                print(f"Using fallback RAG for Session {session_id}")
+    if file_context and file_context.get('content'):
+        fc = file_context
+        context_str = f"\n\n[SYSTEM: The user has attached the file '{fc['filename']}'. Use its contents to answer the user's query.]\n--- BEGIN FILE: {fc['filename']} ---\n{fc['content'][:50000]}\n--- END FILE ---\n"
+        system_prompt = context_str + system_prompt
+        print(f"Using ad-hoc file context for Session {session_id}: {fc['filename']}")
 
     ollama_messages = [{"role": "system", "content": system_prompt}]
     for msg in history:
@@ -467,38 +816,70 @@ def generate_response(session_id, model, temperature, options=None):
 
     active_streams[session_id] = True
     opts = {"temperature": temperature}
+    max_tokens_val = None
     if options:
         if options.get('top_p'): opts['top_p'] = float(options['top_p'])
         if options.get('top_k'): opts['top_k'] = int(options['top_k'])
         if options.get('repeat_penalty'): opts['repeat_penalty'] = float(options['repeat_penalty'])
-        if options.get('max_tokens'): opts['num_predict'] = int(options['max_tokens'])
-    payload = {
-        "model": model, "messages": ollama_messages,
-        "options": opts, "stream": True
-    }
+        if options.get('max_tokens'): 
+            opts['num_predict'] = int(options['max_tokens'])
+            max_tokens_val = int(options['max_tokens'])
 
-    full_resp = ""
-    _generation_start_time[session_id] = time.time()
-    _token_count[session_id] = 0
-    try:
-        with requests.post(f'{Config.OLLAMA_API_URL}/api/chat', json=payload, stream=True, timeout=120) as r:
-            for line in r.iter_lines():
-                if not active_streams.get(session_id, True): break
-                if line:
-                    j = json.loads(line)
-                    if 'error' in j: emit('stream_chunk', {'chunk': f"\n**Error:** {j['error']}"}); break
-                    if 'message' in j and 'content' in j['message']:
-                        c = j['message']['content']
-                        full_resp += c
-                        _token_count[session_id] = _token_count.get(session_id, 0) + 1
-                        elapsed = time.time() - _generation_start_time.get(session_id, time.time())
-                        tps = round(_token_count[session_id] / elapsed, 1) if elapsed > 0 else 0
-                        emit('stream_chunk', {'chunk': c, 'tps': tps, 'tokens': _token_count[session_id]})
-    except Exception as e:
-        emit('stream_chunk', {'chunk': f"**Error:** {str(e)}"})
-    
+    # Tool use loop: up to 5 rounds of tool calls
+    max_tool_rounds = 5
+    for _ in range(max_tool_rounds):
+        payload = {
+            "model": model, "messages": ollama_messages,
+            "options": opts, "stream": True,
+            "tools": tool_utils.TOOL_DEFINITIONS
+        }
+
+        full_resp = ""
+        tool_calls = []
+        _generation_start_time[session_id] = time.time()
+        _token_count[session_id] = 0
+        try:
+            with requests.post(f'{Config.OLLAMA_API_URL}/api/chat', json=payload, stream=True, timeout=120) as r:
+                for line in r.iter_lines():
+                    if not active_streams.get(session_id, True): break
+                    if line:
+                        j = json.loads(line)
+                        if 'error' in j:
+                            emit('stream_chunk', {'chunk': f"\n**Error:** {j['error']}"})
+                            break
+                        msg = j.get('message', {})
+                        if msg.get('content'):
+                            c = msg['content']
+                            full_resp += c
+                            _token_count[session_id] = _token_count.get(session_id, 0) + 1
+                            elapsed = time.time() - _generation_start_time.get(session_id, time.time())
+                            tps = round(_token_count[session_id] / elapsed, 1) if elapsed > 0 else 0
+                            emit('stream_chunk', {'chunk': c, 'tps': tps, 'tokens': _token_count[session_id], 'max_tokens': max_tokens_val})
+                        if msg.get('tool_calls'):
+                            tool_calls = msg['tool_calls']
+        except requests.exceptions.ConnectionError:
+            emit('stream_chunk', {'chunk': "**Error:** Cannot connect to Ollama. Is it running?"})
+            db.save_message(session_id, "assistant", full_resp)
+            emit('stream_done', {})
+            return
+        except Exception as e:
+            emit('stream_chunk', {'chunk': f"**Error:** {str(e)}"})
+
+        if not tool_calls:
+            break
+
+        # Execute tool calls
+        for tc in tool_calls:
+            name = tc["function"]["name"]
+            emit('stream_chunk', {'chunk': f"\n> **Using tool:** `{name}`..."})
+            result = tool_utils.execute_tool(tc)
+            ollama_messages.append({"role": "assistant", "content": "", "tool_calls": [tc]})
+            ollama_messages.append({"role": "tool", "content": result})
+            emit('stream_chunk', {'chunk': f" done.\n\n"})
+
     db.save_message(session_id, "assistant", full_resp)
     emit('stream_done', {})
     
 if __name__ == '__main__':
-    socketio.run(app, debug=True, port=5000, host='0.0.0.0')
+    debug_mode = os.environ.get('FLASK_DEBUG', '0') == '1'
+    socketio.run(app, debug=debug_mode, port=Config.PORT, host=Config.HOST)
