@@ -109,6 +109,7 @@ function loadAdminUsers() {
             <tr class="border-t border-[var(--border-color)] hover:bg-[var(--hover-bg)] cursor-pointer" onclick="window.location.href='/admin/user/${u.id}'">
                 <td class="p-3 text-[var(--text-primary)]">
                     <a href="/admin/user/${u.id}" class="hover:text-nothing-red transition">${escapeHtml(u.username)}</a>
+                    ${u.blocked ? '<span class="ml-2 text-[10px] text-red-500 font-mono">[BANNED]</span>' : ''}
                 </td>
                 <td class="p-3 text-[var(--text-secondary)]">${escapeHtml(u.email || '\u2014')}</td>
                 <td class="p-3">

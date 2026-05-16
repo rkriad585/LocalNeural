@@ -54,6 +54,8 @@ def init_db():
     for col in ['email', 'full_name', 'profile_pic', 'role']:
         try: c.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT")
         except: pass
+    try: c.execute("ALTER TABLE users ADD COLUMN blocked INTEGER DEFAULT 0")
+    except: pass
 
     for col in ['user_id']:
         try: c.execute(f"ALTER TABLE projects ADD COLUMN {col} TEXT")
@@ -821,3 +823,15 @@ def get_user_total_tokens(uid):
     row = conn.execute("SELECT COALESCE(SUM(total_tokens), 0) as total FROM sessions WHERE user_id = ?", (uid,)).fetchone()
     conn.close()
     return row['total'] if row else 0
+
+def is_user_blocked(uid):
+    conn = get_db()
+    row = conn.execute("SELECT blocked FROM users WHERE id = ?", (uid,)).fetchone()
+    conn.close()
+    return bool(row and row['blocked'])
+
+def set_user_blocked(uid, blocked=True):
+    conn = get_db()
+    conn.execute("UPDATE users SET blocked = ? WHERE id = ?", (1 if blocked else 0, uid))
+    conn.commit()
+    conn.close()

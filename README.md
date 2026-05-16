@@ -4,179 +4,203 @@
 
 # LocalNeural
 
-**The Ultimate Private AI Interface. Local. Fast. Beautiful.**
+**The Ultimate Private AI Interface. Local. Fast. Beautiful. Multi-Provider.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
-[![Ollama](https://img.shields.io/badge/Powered%20By-Ollama-white.svg)](https://ollama.com/)
+[![Flask](https://img.shields.io/badge/Flask-3.0+-black.svg)](https://flask.palletsprojects.com/)
+[![Socket.IO](https://img.shields.io/badge/Socket.IO-5.0+-white.svg)](https://socket.io/)
 
-[**Explore the Code**](https://github.com/rkstudio585/LocalNeural) · [**Report Bug**](https://github.com/rkstudio585/LocalNeural/issues) · [**Request Feature**](https://github.com/rkstudio585/LocalNeural)
+[Explore the Code](https://github.com/rkriad585/LocalNeural) · [Report Bug](https://github.com/rkriad585/LocalNeural/issues) · [Request Feature](https://github.com/rkriad585/LocalNeural)
 
 </div>
 
 ---
 
-## 🌟 Introduction
+## Overview
 
-Welcome to **LocalNeural**, a cutting-edge, self-hosted web interface designed to interact with your local LLMs (Large Language Models) via **Ollama**.
+LocalNeural is a self-hosted, multi-provider AI chat interface with a stunning **"Nothing OS" inspired UI**. It supports **local models** via Ollama and **cloud providers** like OpenAI, Anthropic, Google Gemini, OpenRouter, and Groq — all behind a single, consistent interface.
 
-In a world where data privacy is paramount, LocalNeural bridges the gap between powerful AI and complete data sovereignty. It features a stunning **"Nothing OS" inspired UI** mixed with **Liquid Glassmorphism**, offering a premium user experience comparable to top-tier commercial AI platforms—but running entirely on your machine.
-
-Whether you are a developer needing a coding assistant, a writer brainstorming ideas, or a researcher organizing documents, LocalNeural provides the tools you need with zero latency and zero data tracking.
+Built with **privacy-first** principles: your data stays on your server. Features include real-time streaming, file RAG, multimodal vision, conversation branching, token tracking, admin controls, and more.
 
 ---
 
-## ✨ Key Features
+## Key Features
 
-*   **⚡ Real-Time Streaming:** Experience word-by-word streaming responses via WebSockets, just like ChatGPT.
-*   **🧠 Context-Aware Memory:** The AI remembers your conversation history, allowing for deep, multi-turn discussions.
-*   **📂 Project Workspaces (RAG):** Create isolated projects and upload **PDFs, Code files, and Markdown notes**. The AI will read your files and use them as knowledge to answer your questions.
-*   **🎨 Stunning UI/UX:** A dark-themed, dot-matrix background with frosted glass elements and smooth Material 3 animations.
-*   **📸 Multimodal Support:** Drag and drop images or paste them from your clipboard to have the AI analyze them (requires vision models like `llava`).
-*   **📝 Markdown & Code Highlighting:** Beautiful rendering of mathematical formulas, tables, and syntax-highlighted code blocks with one-click copying.
-*   **🔄 Regenerate & Edit:** Made a mistake? Edit your prompt or ask the AI to try again with a single click.
-*   **💾 Prompt Library:** Save your favorite system prompts and inject them into any chat instantly.
-*   **📥 Export Options:** Download your conversations as Markdown, JSON, or HTML/PDF.
-
----
-
-## 🛠️ Prerequisites
-
-Before you begin, ensure you have the following installed on your system:
-
-1.  **Python 3.8+**: The backend engine.
-2.  **Ollama**: The core AI runner. [Download here](https://ollama.com).
-    *   *Note:* Ensure you have pulled a model (e.g., `ollama pull llama3`) and the service is running (`ollama serve`).
-
----
-
-## 🚀 Installation & Setup
-
-Follow these simple steps to get LocalNeural running on your machine.
-
-### 1. Clone the Repository
-  ```bash
-  git clone https://github.com/rkstudio585/LocalNeural.git
-  cd LocalNeural
-  ```
-  
-### 2. Set Up Virtual Environment (Optional but Recommended)
-  ```bash
-  python -m venv venv
-  # Windows
-  venv\Scripts\activate
-  # Mac/Linux
-  source venv/bin/activate
-  ```
-
-### 3. Install Dependencies
-  ```bash
-  pip install -r requirements.txt
-  ```
-  *(Dependencies include: `flask`, `flask-socketio`, `requests`, `eventlet`, `pypdf`)*
-
-### 4. Run the Application
-  ```bash
-  python app.py
-  ```
-
-### 5. Access the Interface
-Open your browser and navigate to: `http://localhost:5000`
+- **Multi-Provider AI** — Ollama (local), OpenAI, Anthropic, Google Gemini, OpenRouter, Groq
+- **Real-Time Streaming** — Word-by-word responses via WebSockets (Socket.IO)
+- **Dark/Light Theme** — CSS custom properties, persists across sessions
+- **Session Branching** — Fork conversations into new branches
+- **Token Tracking** — Per-session token counts displayed in history
+- **Markdown Toggle** — Render messages as plain text or formatted markdown
+- **Message Export** — Export individual messages as markdown
+- **File RAG** — Upload PDFs, code files, markdown notes as project knowledge bases
+- **Multimodal Vision** — Drag & drop or paste images for AI analysis (vision models)
+- **Conversation Management** — Pin, archive, tag, search, and organize sessions
+- **Prompt Library** — Save and inject system prompt templates
+- **Prompt Variables** — `{date}`, `{time}`, `{datetime}`, `{user}` auto-substitution
+- **Admin Controls** — User management, global settings, global tools, user blocking
+- **User Settings** — Per-user provider, model, temperature, system prompt
+- **Tools System** — Define custom function-calling tools (global and per-user)
+- **Data Export** — Export chats as Markdown, JSON, or HTML/PDF
+- **Account Management** — Profile editing, password change, self-deletion
+- **Security Hardened** — CSRF protection, rate limiting, 72h sessions, password min 8
 
 ---
 
-## 🧠 How It Works
+## Screenshots
 
-LocalNeural uses a **Model-View-Controller (MVC)** architecture powered by **ollama**, **Flask** and **WebSockets**.
-
-### The Architecture
-1.  **Frontend (View):** Built with HTML5, TailwindCSS, and jQuery. It handles user inputs, file drops, and renders the Markdown response. It connects to the backend via `Socket.IO` for bidirectional, low-latency communication.
-2.  **Backend (Controller):** `app.py` acts as the brain. It receives prompts, queries the SQLite database for context, and forwards the request to the running Ollama instance.
-3.  **Database (Model):** A robust `SQLite` database stores:
-    *   `sessions`: Chat metadata and settings.
-    *   `messages`: The actual conversation history.
-    *   `projects` & `documents`: Uploaded files for the Knowledge Base.
-4.  **AI Engine:** Ollama runs locally, processing the prompt and streaming tokens back to Flask, which instantly pushes them to your browser.
-
-### Context Injection (Project Mode)
-When you create a **Project** and upload files:
-1.  The backend parses the text from PDFs or Code files.
-2.  This text is stored in the database linked to the Project ID.
-3.  When you chat inside that project, the system silently injects the file contents into the **System Prompt** of the AI.
-4.  This allows the AI to "read" your files and answer specific questions about them.
+> *Coming soon — see the live demo or run locally.*
 
 ---
 
-## 📖 How To Use
+## Quick Start
 
-### 1. Starting a Chat
-Simply type in the input box and hit **Ctrl+Enter**. 
-*   **Enter:** Creates a new line.
+### Prerequisites
+- Python 3.8+
+- Ollama (for local models) — [Download](https://ollama.com)
+- Pull a model: `ollama pull llama3`
 
-### 2. Managing Projects (Knowledge Base)
-1.  Click **"+ New Project"** in the sidebar.
-2.  Give it a name (e.g., "Python Learning").
-3.  Upload relevant PDF text books or Python scripts.
-4.  Click Create. The AI now knows everything inside those files for this specific chat session.
+### Install & Run
+```bash
+git clone https://github.com/rkriad585/LocalNeural.git
+cd LocalNeural
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+python app.py
+```
 
-### 3. Using Images
-*   **Drag & Drop** an image onto the text area.
-*   **Paste** an image directly from your clipboard (`Ctrl+V`).
-*   Ask the AI: *"What is in this image?"* (Ensure you have a vision-capable model selected).
+Open **http://localhost:59869** in your browser.
 
-### 4. Prompt Library
-1.  Click the **Library** button in the sidebar.
-2.  Add frequently used prompts (e.g., "Act as a Senior React Developer").
-3.  Click any saved prompt to instantly insert it into your input box.
+> **Note:** Default port is `59869`. Set `LOCALNEURAL_PORT` env var to change it.
 
----
+### Docker
+```bash
+docker build -t localneural .
+docker run -p 59869:59869 localneural
+```
 
-## 📂 Project Structure
-
-  ```text
-  LocalNeural/
-  ├── app.py                 # Main application entry point (Server)
-  ├── config.py              # Configuration settings
-  ├── database.py            # SQLite database management logic
-  ├── requirements.txt       # Python dependencies
-  ├── README.md              # Project overview
-  ├── LICENSE                # Project MIT License
-  ├── .data/
-  │   └── neural_memory.db   # SQL neural memory
-  ├── utilities/
-  │   ├── chat_logic.py      # AI Title generation & context helpers
-  │   └── file_parser.py     # Extract text from PDFs/Code files
-  ├── static/
-  │   ├── css/
-  │   │   └── style.css      # Custom styling & animations
-  │   ├── images
-  │   │   └── logo.svg       # Project SVG logo
-  │   └── js/
-  │       ├── main.js        # Core frontend logic & sockets
-  │       └── chat_extras.js # UI helpers (Regenerate, Copy, etc.)
-  └── templates/
-      ├── base.html          # Main HTML layout
-      ├── index.html         # Chat interface
-      └── settings.html      # Configuration modal
-  ```
+Or use docker-compose:
+```bash
+docker-compose up
+```
 
 ---
 
-## 🤝 Contributing
+## Configuration
 
-Contributions are what make the open-source community such an amazing place to learn, inspire, and create. Any contributions you make are **greatly appreciated**.
+Copy `.env.example` to `.env` and configure:
 
-1.  **Fork** the Project.
-2.  Create your Feature Branch (`git checkout -b feature/AmazingFeature`).
-3.  Commit your Changes (`git commit -m 'Add some AmazingFeature'`).
-4.  Push to the Branch (`git push origin feature/AmazingFeature`).
-5.  Open a **Pull Request**.
+```env
+SECRET_KEY=your-strong-random-secret-key
+LOCALNEURAL_HOST=0.0.0.0
+LOCALNEURAL_PORT=59869
 
-Have a bug report or a feature request? Please [open an issue](https://github.com/rkstudio585/LocalNeural/issues)!
+# Optional: SMTP for password reset emails
+LOCALNEURAL_SMTP_HOST=smtp.gmail.com
+LOCALNEURAL_SMTP_PORT=587
+LOCALNEURAL_SMTP_USER=your@email.com
+LOCALNEURAL_SMTP_PASSWORD=your-app-password
+LOCALNEURAL_SMTP_FROM=your@email.com
+
+# Optional: Auto-create super admin on first run
+LOCALNEURAL_ADMIN_EMAIL=admin@example.com
+LOCALNEURAL_ADMIN_PASSWORD=your-admin-password
+```
+
+All settings are documented in [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
 
 ---
 
-## 📜 License
+## Documentation
+
+| Document | Description |
+|---|---|
+| [Architecture](docs/ARCHITECTURE.md) | System architecture, design decisions, data flow |
+| [API Reference](docs/API.md) | Full API endpoint documentation |
+| [Setup Guide](docs/SETUP.md) | Detailed installation and configuration |
+| [User Guide](docs/USER_GUIDE.md) | How to use all features |
+| [Deployment](docs/DEPLOYMENT.md) | Docker, production deployment |
+| [Configuration](docs/CONFIGURATION.md) | All environment variables and settings |
+| [Features](docs/FEATURES.md) | Detailed feature documentation |
+| [Security](docs/SECURITY.md) | Security model, CSRF, rate limiting |
+| [Development](docs/DEVELOPMENT.md) | Contributing, code style, testing |
+
+---
+
+## Tech Stack
+
+- **Backend:** Python, Flask, Flask-SocketIO, Flask-Limiter
+- **Database:** SQLite (via `sqlite3`)
+- **Frontend:** HTML5, TailwindCSS (CDN), jQuery, Socket.IO Client
+- **AI Providers:** Ollama API, OpenAI API, Anthropic API, Google Gemini API, OpenRouter API, Groq API
+- **Markdown:** marked.js, highlight.js
+- **Auth:** Session-based with werkzeug password hashing
+- **Deployment:** Docker, docker-compose
+
+---
+
+## Project Structure
+
+```
+LocalNeural/
+├── app.py                 # Main Flask app (routes, auth, admin, tools, chat)
+├── config.py              # Configuration class (env vars, defaults)
+├── database.py            # SQLite database operations
+├── requirements.txt       # Python dependencies
+├── Dockerfile             # Docker build
+├── docker-compose.yml     # Docker compose
+├── .env.example           # Environment template
+├── LICENSE                # MIT License
+├── README.md
+├── CODE_OF_CONDUCT.md
+├── CONTRIBUTING.md
+├── .data/
+│   └── neural_memory.db   # SQLite database file
+├── docs/                  # Documentation
+│   ├── ARCHITECTURE.md
+│   ├── API.md
+│   ├── CONFIGURATION.md
+│   ├── DEPLOYMENT.md
+│   ├── DEVELOPMENT.md
+│   ├── FEATURES.md
+│   ├── SECURITY.md
+│   ├── SETUP.md
+│   └── USER_GUIDE.md
+├── static/
+│   ├── css/
+│   │   └── style.css
+│   ├── images/
+│   │   └── logo.svg
+│   ├── js/
+│   │   └── main.js
+│   └── uploads/
+│       └── profiles/
+├── templates/
+│   ├── base.html
+│   ├── index.html
+│   ├── login.html
+│   ├── settings.html
+│   ├── settings_page.html
+│   ├── profile.html
+│   ├── admin.html
+│   ├── admin_dashboard.html
+│   ├── user_view.html
+│   └── reset_password.html
+└── utilities/
+    ├── chat_logic.py      # Session context, title generation
+    ├── email.py            # SMTP email sending
+    ├── embeddings.py       # Document embeddings
+    ├── file_parser.py      # PDF/code file parsing
+    ├── providers.py        # Multi-AI provider abstraction
+    ├── tools.py            # Function calling tools
+    └── web_search.py       # Web search tool
+```
+
+---
+
+## License
 
 Distributed under the **MIT License**. See `LICENSE` for more information.
 
@@ -184,6 +208,6 @@ Distributed under the **MIT License**. See `LICENSE` for more information.
 
 <div align="center">
 
-Made with ❤️ by  [rkriad585](https://github.com/rkriad585)
+Made with ❤️ by [rkriad585](https://github.com/rkriad585)
 
 </div>

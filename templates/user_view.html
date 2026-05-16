@@ -105,6 +105,13 @@
                         <button onclick="resetUserPassword()" class="px-4 py-1.5 bg-white/5 hover:bg-white/10 rounded text-xs border border-white/10 font-mono">Set</button>
                     </div>
                     <div class="pt-3 border-t border-[var(--border-color)]">
+                        <div class="flex items-center gap-4">
+                            <label class="text-xs font-mono text-gray-500 w-24">Account Status</label>
+                            <span id="user-blocked-badge" class="text-[10px] font-mono px-2 py-0.5 rounded-full border hidden"></span>
+                            <button id="btn-block-user" onclick="toggleBlockUser()" class="px-4 py-1.5 bg-yellow-900/50 text-yellow-400 text-xs rounded-full font-bold hover:bg-yellow-800/50 transition border border-yellow-900/50"></button>
+                        </div>
+                    </div>
+                    <div class="pt-3 border-t border-[var(--border-color)]">
                         <button onclick="deleteThisUser()" class="px-6 py-2 bg-red-900/50 text-red-400 text-xs rounded-full font-bold hover:bg-red-800/50 transition border border-red-900/50">Delete This User</button>
                         <span class="text-[10px] font-mono text-gray-600 ml-3">Permanently deletes user, all sessions, and messages.</span>
                     </div>
@@ -117,6 +124,26 @@
 <script>
 const USER_ID = '{{ target_user.id }}';
 
+let USER_BLOCKED = false;
+
+function updateBlockUI() {
+    const badge = document.getElementById('user-blocked-badge');
+    const btn = document.getElementById('btn-block-user');
+    if (USER_BLOCKED) {
+        badge.textContent = 'Blocked';
+        badge.className = 'text-[10px] font-mono px-2 py-0.5 rounded-full border text-red-500 border-red-900/50 bg-red-900/20';
+        badge.classList.remove('hidden');
+        btn.textContent = 'Unblock User';
+        btn.className = 'px-4 py-1.5 bg-green-900/50 text-green-400 text-xs rounded-full font-bold hover:bg-green-800/50 transition border border-green-900/50';
+        document.getElementById('user-role-badge').textContent = 'blocked';
+        document.getElementById('user-role-badge').className = 'text-[10px] font-mono px-2 py-0.5 rounded-full border text-red-500 border-red-900/50 bg-red-900/20';
+    } else {
+        badge.classList.add('hidden');
+        btn.textContent = 'Block User';
+        btn.className = 'px-4 py-1.5 bg-yellow-900/50 text-yellow-400 text-xs rounded-full font-bold hover:bg-yellow-800/50 transition border border-yellow-900/50';
+    }
+}
+
 function loadUserDetail() {
     fetch('/api/admin/user/' + USER_ID, { headers: {'X-Requested-With': 'XMLHttpRequest'} })
     .then(r => { if (!r.ok) { window.location.href = '/admin_dashboard'; return null; } return r.json(); })
@@ -127,6 +154,9 @@ function loadUserDetail() {
         document.getElementById('stat-messages').textContent = d.stats.message_count;
         document.getElementById('stat-tokens').textContent = d.stats.total_tokens;
         document.getElementById('session-count-label').textContent = d.stats.session_count + ' sessions';
+
+        USER_BLOCKED = !!u.blocked;
+        updateBlockUI();
 
         const initials = (u.full_name || u.username || '?').trim().split(/\s+/);
         document.getElementById('user-avatar-initials').textContent = initials.length > 1 ? (initials[0][0] + initials[initials.length-1][0]).toUpperCase() : (initials[0] && initials[0][0] ? initials[0][0].toUpperCase() : '?');
@@ -146,6 +176,19 @@ function loadUserDetail() {
             </tr>
         `).join('');
     });
+}
+
+function toggleBlockUser() {
+    const action = USER_BLOCKED ? 'unblock' : 'block';
+    if (!confirm(USER_BLOCKED ? 'Unblock this user?' : 'Block this user? They will not be able to log in or send messages.')) return;
+    fetch('/api/admin/user/' + USER_ID + '/block', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
+        body: JSON.stringify({ blocked: !USER_BLOCKED })
+    })
+    .then(r => r.json())
+    .then(d => { if (d.status === 'success') { USER_BLOCKED = !USER_BLOCKED; updateBlockUI(); showToast('User ' + (USER_BLOCKED ? 'blocked' : 'unblocked'), 'success'); } else showToast(d.error || 'Failed', 'error'); })
+    .catch(() => showToast('Failed', 'error'));
 }
 
 function changeUserRole() {

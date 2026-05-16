@@ -133,6 +133,8 @@ def login():
         user = db.get_user_by_email(username)
     if not user or not check_password_hash(user['password_hash'], password):
         return jsonify({"error": "Invalid username or password"}), 401
+    if user.get('blocked'):
+        return jsonify({"error": "Your account has been blocked. Contact an administrator."}), 403
     session_data = dict(session)
     session.clear()
     for k, v in session_data.items():
@@ -993,7 +995,7 @@ def admin_list_users():
     err = require_admin()
     if err: return err
     conn = db.get_db()
-    rows = conn.execute("SELECT id, username, email, full_name, role, created_at FROM users ORDER BY created_at DESC").fetchall()
+    rows = conn.execute("SELECT id, username, email, full_name, role, created_at, blocked FROM users ORDER BY created_at DESC").fetchall()
     conn.close()
     return jsonify([dict(r) for r in rows])
 
@@ -1102,6 +1104,19 @@ def admin_set_user_password(uid):
     return jsonify({"status": "success"})
 
 
+@app.route('/api/admin/user/<uid>/block', methods=['POST'])
+def admin_block_user(uid):
+    err = require_admin()
+    if err: return err
+    target = db.get_user_by_id(uid)
+    if not target:
+        return jsonify({"error": "User not found"}), 404
+    blocked = request.json.get('blocked', True)
+    db.set_user_blocked(uid, blocked=blocked)
+    action = "blocked" if blocked else "unblocked"
+    return jsonify({"status": "success", "message": f"User {action}"})
+
+
 # --- BACKGROUND TASKS ---
 def background_rename(sid, prompt, model):
     title = utils.generate_smart_title(prompt, model)
@@ -1152,6 +1167,10 @@ def handle_message(data):
 
     is_new_chat = False
     uid = session.get('user_id')
+    if uid and db.is_user_blocked(uid):
+        emit('stream_chunk', {'chunk': "**Error:** Your account has been blocked."})
+        emit('stream_done', {})
+        return
     if not session_id:
         title = "New Chat..."
         session_id = db.create_session(title, model, req_system_prompt, project_id, user_id=uid)
