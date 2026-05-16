@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="toast-container" id="toast-container"></div>
+<div class="flex h-full w-full relative">
+    <div class="flex-1 flex flex-col h-full min-w-0">
+        <header class="glass h-14 shrink-0 flex items-center px-4 sticky top-0 z-30">
+            <div class="flex items-center gap-3">
+                <div class="w-2 h-2 bg-nothing-red rounded-full"></div>
+                <h1 class="font-mono font-bold text-sm tracking-wider uppercase">Admin Panel</h1>
+                <span class="text-[10px] font-mono text-gray-500">System Management</span>
+            </div>
+            <div class="ml-auto flex items-center gap-3">
+                <a href="/" class="text-xs font-mono text-gray-500 hover:text-white transition px-3 py-1.5 rounded hover:bg-white/5 border border-white/5">Back to Chat</a>
+            </div>
+        </header>
+
+        <div class="flex-1 overflow-y-auto p-6 space-y-8 max-w-5xl mx-auto w-full">
+            <!-- USERS -->
+            <section>
+                <h2 class="font-mono font-bold text-xs tracking-wider text-gray-500 uppercase mb-4">Users</h2>
+                <div class="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-xl overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-xs font-mono">
+                            <thead>
+                                <tr class="bg-[var(--bg-surface)]">
+                                    <th class="text-left p-3 text-gray-500 font-semibold">Username</th>
+                                    <th class="text-left p-3 text-gray-500 font-semibold">Email</th>
+                                    <th class="text-left p-3 text-gray-500 font-semibold">Role</th>
+                                    <th class="text-left p-3 text-gray-500 font-semibold">Created</th>
+                                    <th class="text-right p-3 text-gray-500 font-semibold">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="admin-users-list"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SYSTEM SETTINGS -->
+            <section>
+                <h2 class="font-mono font-bold text-xs tracking-wider text-gray-500 uppercase mb-4">System Settings</h2>
+                <div class="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-xl p-5 space-y-5">
+                    <div>
+                        <label class="block text-xs font-mono text-gray-500 mb-2">System Prompt</label>
+                        <textarea id="admin-system-prompt" rows="4" class="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-lg p-3 text-sm text-[var(--text-primary)] focus:outline-none focus:border-nothing-red resize-none font-mono"></textarea>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <label class="text-xs font-mono text-gray-500">Allow Registration</label>
+                        <select id="admin-allow-registration" class="bg-[var(--bg-input)] border border-[var(--border-color)] rounded px-3 py-1.5 text-xs text-[var(--text-primary)] font-mono focus:outline-none focus:border-nothing-red">
+                            <option value="true">Enabled</option>
+                            <option value="false">Disabled</option>
+                        </select>
+                    </div>
+                    <button onclick="saveAdminSettings()" class="px-6 py-2 bg-nothing-red text-white text-xs font-bold rounded-full hover:bg-red-600 transition shadow-lg">Save Settings</button>
+                </div>
+            </section>
+        </div>
+    </div>
+</div>
+
+<script>
+function loadAdminUsers() {
+    fetch('/api/admin/users', { headers: {'X-Requested-With': 'XMLHttpRequest'} })
+    .then(r => { if (!r.ok) { window.location.href = '/'; return null; } return r.json(); })
+    .then(users => {
+        if (!users) return;
+        const tbody = document.getElementById('admin-users-list');
+        tbody.innerHTML = users.map(u => `
+            <tr class="border-t border-[var(--border-color)] hover:bg-[var(--hover-bg)]">
+                <td class="p-3 text-[var(--text-primary)]">${escapeHtml(u.username)}</td>
+                <td class="p-3 text-[var(--text-secondary)]">${escapeHtml(u.email || '—')}</td>
+                <td class="p-3"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${u.role === 'admin' ? 'bg-nothing-red/20 text-nothing-red' : 'bg-gray-500/20 text-gray-500'}">${u.role}</span></td>
+                <td class="p-3 text-[var(--text-muted)]">${u.created_at ? new Date(u.created_at).toLocaleDateString() : '—'}</td>
+                <td class="p-3 text-right">
+                    ${u.role !== 'admin' ? `<button onclick="deleteUser('${u.id}')" class="text-red-500 hover:text-red-400 text-[10px] font-mono underline">Delete</button>` : '<span class="text-[10px] text-gray-600">—</span>'}
+                </td>
+            </tr>
+        `).join('');
+    });
+}
+
+function loadAdminSettings() {
+    fetch('/api/admin/settings', { headers: {'X-Requested-With': 'XMLHttpRequest'} })
+    .then(r => { if (!r.ok) { window.location.href = '/'; return null; } return r.json(); })
+    .then(s => {
+        if (!s) return;
+        document.getElementById('admin-system-prompt').value = s.system_prompt || '';
+        document.getElementById('admin-allow-registration').value = s.allow_registration || 'true';
+    });
+}
+
+function saveAdminSettings() {
+    const data = {
+        system_prompt: document.getElementById('admin-system-prompt').value,
+        allow_registration: document.getElementById('admin-allow-registration').value,
+    };
+    fetch('/api/admin/settings', {
+        method: 'POST', headers: {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
+        body: JSON.stringify(data)
+    })
+    .then(r => r.json())
+    .then(d => { showToast('Settings saved', 'success'); })
+    .catch(() => showToast('Failed to save settings', 'error'));
+}
+
+function deleteUser(uid) {
+    if (!confirm('Delete this user and all their sessions?')) return;
+    fetch('/api/admin/users/' + uid, {
+        method: 'DELETE', headers: {'X-Requested-With': 'XMLHttpRequest'}
+    })
+    .then(r => r.json())
+    .then(d => { if (d.status === 'success') { loadAdminUsers(); showToast('User deleted', 'success'); } else showToast(d.error || 'Delete failed', 'error'); })
+    .catch(() => showToast('Delete failed', 'error'));
+}
+
+function showToast(msg, type) {
+    const c = document.getElementById('toast-container');
+    if (!c) return;
+    const t = document.createElement('div');
+    t.className = 'toast toast-' + type;
+    t.textContent = msg;
+    c.appendChild(t);
+    setTimeout(() => { t.style.animation = 'toast-out 0.3s ease forwards'; setTimeout(() => t.remove(), 300); }, 2500);
+}
+
+function escapeHtml(s) {
+    if (!s) return '';
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+loadAdminUsers();
+loadAdminSettings();
+</script>
+{% endblock %}

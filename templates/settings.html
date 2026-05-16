@@ -80,6 +80,32 @@
                 <div id="stats-display" class="text-[10px] font-mono text-gray-600 mt-2 hidden space-y-1"></div>
             </div>
 
+            <!-- AI Providers -->
+            <div class="pt-4 border-t border-white/10">
+                <label class="block text-xs font-mono text-gray-500 mb-3 uppercase">AI Providers</label>
+                <div class="space-y-3">
+                    <div>
+                        <label class="text-[10px] font-mono text-gray-600 uppercase block mb-1">Active Provider</label>
+                        <select id="setting-provider" onchange="onProviderChange()" class="w-full bg-[#151515] border border-white/10 rounded px-2 py-1.5 text-xs text-gray-300 focus:outline-none focus:border-nothing-red font-mono">
+                            <option value="ollama">Ollama (Local)</option>
+                            <option value="openai">OpenAI</option>
+                            <option value="anthropic">Anthropic</option>
+                            <option value="gemini">Google Gemini</option>
+                            <option value="openrouter">OpenRouter</option>
+                            <option value="groq">Groq</option>
+                        </select>
+                    </div>
+                    <div id="provider-api-key-group">
+                        <label class="text-[10px] font-mono text-gray-600 uppercase block mb-1">API Key</label>
+                        <input id="setting-api-key" type="password" placeholder="sk-..." class="w-full bg-[#151515] border border-white/10 rounded px-2 py-1.5 text-xs text-gray-300 focus:outline-none focus:border-nothing-red font-mono">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-mono text-gray-600 uppercase block mb-1">Ollama Base URL</label>
+                        <input id="setting-ollama-url" type="text" value="http://localhost:11434" class="w-full bg-[#151515] border border-white/10 rounded px-2 py-1.5 text-xs text-gray-300 focus:outline-none focus:border-nothing-red font-mono">
+                    </div>
+                </div>
+            </div>
+
             <!-- Health -->
             <div class="pt-4 border-t border-white/10">
                 <label class="block text-xs font-mono text-gray-500 mb-3 uppercase">System Health</label>

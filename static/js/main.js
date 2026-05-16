@@ -105,6 +105,8 @@ $(document).ready(function () {
         if (e.ctrlKey && e.key === 'n') { e.preventDefault(); newChat(); }
         if (e.ctrlKey && e.key === 'l') { e.preventDefault(); toggleLibrary(); }
         if (e.ctrlKey && e.shiftKey && e.key === 'E') { e.preventDefault(); exportChat('md'); }
+        if (e.ctrlKey && e.key === 'f' && currentSessionId) { e.preventDefault(); toggleSessionSearch(); }
+        if (e.ctrlKey && e.key === 'd') { e.preventDefault(); toggleTheme(); }
     });
 
     // Theme restoration
@@ -468,6 +470,8 @@ function appendMessage(role, text, domId, dbId = null, imgBase64 = null, pinned 
 <button onclick="copyMessage('${finalDomId}', this)" class="p-1.5 hover:bg-white/10 rounded text-gray-400 hover:text-white" title="Copy"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg></button>
 ${isUser ? `<button onclick="startEdit('${finalDomId}')" class="p-1.5 hover:bg-white/10 rounded text-gray-400 hover:text-white" title="Edit"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg></button>` : `<button onclick="triggerRegenerate()" class="p-1.5 hover:bg-white/10 rounded text-gray-400 hover:text-white" title="Regenerate"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg></button>`}
 ${pinBtn}
+<button onclick="toggleMarkdown(this, '${finalDomId}')" class="p-1.5 hover:bg-white/10 rounded text-gray-400 hover:text-white" title="Show raw Markdown">&lt;/&gt;</button>
+<button onclick="exportMessage('${finalDomId}', 'clipboard')" class="p-1.5 hover:bg-white/10 rounded text-gray-400 hover:text-white" title="Copy to clipboard"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg></button>
 <button onclick="saveToLibraryFromMsg('${finalDomId}')" class="p-1.5 hover:bg-white/10 rounded text-gray-400 hover:text-white" title="Save to Library"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"></path></svg></button>
 <button onclick="forkChat('${finalDomId}')" class="p-1.5 hover:bg-white/10 rounded text-gray-400 hover:text-white" title="Fork conversation"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg></button>
 </div>`;
@@ -608,6 +612,7 @@ function checkAuth() {
             $('#auth-user-info').text(data.username);
             $('#profile-link').removeClass('hidden');
             $('#logout-btn').removeClass('hidden');
+
             const initialsEl = $('#profile-initials-mini');
             const imgEl = $('#profile-pic-mini');
             if (data.profile_pic) {
@@ -638,6 +643,7 @@ function saveSettings() {
         data: JSON.stringify({ system_prompt: sys }),
         success: () => { toggleSettings(); showToast('Settings saved', 'success'); }
     });
+    saveProviderConfig();
 }
 
 function loadSettings() {
@@ -660,6 +666,7 @@ function loadSettings() {
     const fsNum = parseInt(savedFontSize);
     $('#font-size-slider').val(fsNum);
     $('#font-size-display').text(savedFontSize);
+    loadProviderConfig();
 }
 
 function applyTemplate() {
@@ -704,8 +711,143 @@ function changeAccent() {
 }
 
 function changeFontSize() {
-    const s = prompt("Font size (e.g. 14px):", localStorage.getItem('ln-font-size') || '14px');
+    const s = prompt('Enter font size (px):', document.body.style.fontSize || '14');
     if (s) { $('body').css('font-size', s); localStorage.setItem('ln-font-size', s); }
+}
+
+// --- THEME TOGGLE ---
+function toggleTheme() {
+    const html = document.documentElement;
+    const isDark = html.className !== 'light';
+    html.className = isDark ? 'light' : 'dark';
+    localStorage.setItem('ln-theme', isDark ? 'light' : 'dark');
+    $('#icon-sun, #icon-moon').toggleClass('hidden');
+}
+
+function initThemeIcon() {
+    const isLight = document.documentElement.className === 'light';
+    $('#icon-sun').toggleClass('hidden', !isLight);
+    $('#icon-moon').toggleClass('hidden', isLight);
+}
+
+// --- SESSION SEARCH (within current chat) ---
+function toggleSessionSearch() {
+    const overlay = document.getElementById('session-search-overlay');
+    if (!overlay) return;
+    overlay.classList.toggle('active');
+    if (overlay.classList.contains('active')) {
+        document.getElementById('session-search-input').focus();
+    }
+}
+
+function filterSessionMessages() {
+    const q = document.getElementById('session-search-input').value.trim().toLowerCase();
+    const container = document.getElementById('chat-messages');
+    const wrappers = container.querySelectorAll('[id^="wrapper-"]');
+    wrappers.forEach(w => {
+        const text = w.textContent.toLowerCase();
+        if (!q) { w.style.display = ''; return; }
+        w.style.display = text.includes(q) ? '' : 'none';
+        if (q && text.includes(q)) {
+            w.innerHTML = w.innerHTML.replace(/<mark class="search-highlight">(.*?)<\/mark>/g, '$1');
+            const idx = text.indexOf(q);
+            if (idx >= 0) {
+                const original = w.innerHTML;
+                const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                w.innerHTML = original.replace(new RegExp(`(${escaped})`, 'gi'), '<mark class="search-highlight">$1</mark>');
+            }
+        }
+    });
+}
+
+// --- BRANCH TREE ---
+function loadBranchTree(sessionId) {
+    if (!sessionId) { $('#branch-tree-panel').addClass('hidden'); return; }
+    $.get(`/api/sessions/${sessionId}/branches`, (branches) => {
+        const panel = $('#branch-tree-panel');
+        if (!branches || branches.length <= 1) { panel.addClass('hidden'); return; }
+        panel.removeClass('hidden');
+        let html = '<div class="font-mono font-bold text-[10px] text-gray-500 uppercase mb-2">Conversation Tree</div>';
+        branches.forEach(b => {
+            const active = b.id === sessionId ? 'active' : '';
+            const indent = b.depth > 0 ? 'style="padding-left:' + (32 + b.depth * 16) + 'px"' : '';
+            const label = b.title ? b.title.substring(0, 20) : 'Chat';
+            html += `<div class="branch-node ${active}" ${indent} onclick="switchBranch('${b.id}')"><span class="branch-label">${escapeHtml(label)}</span></div>`;
+        });
+        panel.html(html);
+    }).fail(() => { $('#branch-tree-panel').addClass('hidden'); });
+}
+
+function switchBranch(sessionId) {
+    loadSession(sessionId);
+    $('#branch-tree-panel').addClass('hidden');
+}
+
+// --- MARKDOWN TOGGLE ---
+function toggleMarkdown(btn, msgId) {
+    const el = document.getElementById(msgId);
+    if (!el) return;
+    const isRaw = el.dataset.mode === 'raw';
+    if (isRaw) {
+        el.innerHTML = marked.parse(el.dataset.original || el.textContent) + '<span class="typing-cursor"></span>';
+        el.dataset.mode = 'rendered';
+        btn.innerHTML = '&lt;/&gt;';
+        btn.title = 'Show raw Markdown';
+    } else {
+        el.dataset.original = el.innerHTML;
+        el.textContent = el.textContent.replace(/<span[^>]*>.*?<\/span>/g, '').trim();
+        el.dataset.mode = 'raw';
+        btn.innerHTML = 'R';
+        btn.title = 'Render Markdown';
+    }
+    highlightCode(el);
+}
+
+// --- EXPORT SINGLE MESSAGE ---
+function exportMessage(msgId, format) {
+    const dbId = $(`#wrapper-${msgId}`).data('db-id') || $(`#${msgId}`).closest('[data-db-id]').data('db-id');
+    if (!dbId) { showToast('Message not saved yet', 'warning'); return; }
+    if (format === 'clipboard') {
+        const text = document.getElementById(msgId).innerText;
+        navigator.clipboard.writeText(text).then(() => showToast('Copied to clipboard', 'success'));
+        return;
+    }
+    window.open(`/api/messages/${dbId}/export?format=${format}`, '_blank');
+}
+
+// --- PROVIDER CONFIG ---
+function loadProviderConfig() {
+    $.get('/api/provider/config', (data) => {
+        $('#setting-provider').val(data.provider || 'ollama');
+        $('#setting-api-key').val(data.api_key || '');
+        $('#setting-ollama-url').val(data.ollama_url || 'http://localhost:11434');
+        onProviderChange();
+    });
+}
+
+function onProviderChange() {
+    const p = $('#setting-provider').val();
+    if (p === 'ollama') {
+        $('#provider-api-key-group').addClass('hidden');
+        $('#setting-ollama-url').closest('div').removeClass('hidden');
+    } else {
+        $('#provider-api-key-group').removeClass('hidden');
+        $('#setting-ollama-url').closest('div').addClass('hidden');
+    }
+}
+
+function saveProviderConfig() {
+    const data = {
+        provider: $('#setting-provider').val(),
+        api_key: $('#setting-api-key').val(),
+        ollama_url: p === 'ollama' ? $('#setting-ollama-url').val() : '',
+    };
+    $.ajax({
+        url: '/api/provider/config', type: 'POST', contentType: 'application/json',
+        data: JSON.stringify(data),
+        success: () => { showToast('Provider config saved', 'success'); loadModels(); },
+        error: () => { showToast('Failed to save provider config', 'error'); }
+    });
 }
 
 function exportTheme() {
@@ -760,6 +902,7 @@ function loadSession(id) {
                 if (bubble.length) bubble.text(timeAgo(x.timestamp));
             }
         });
+        loadBranchTree(id);
         if (window.innerWidth < 768) toggleSidebar();
         scrollToBottom();
     });
@@ -1008,6 +1151,7 @@ function loadHistoryList() {
         s.forEach(x => {
             if (x.group_id && x.group_id !== currentGroup) { currentGroup = x.group_id; }
             const projLabel = x.project_title ? `<span class="ml-2 text-[9px] bg-nothing-red px-1 rounded text-white opacity-70">${escapeHtml(x.project_title)}</span>` : '';
+            const tokenBadge = x.total_tokens ? `<span class="text-[9px] text-gray-600 ml-1">${x.total_tokens}t</span>` : '';
             const pinned = x.pinned === '1';
             const pinBtn = pinned
                 ? `<button onclick="unpinSession(event,'${x.id}')" class="text-yellow-500 hover:text-white p-1" title="Unpin">${ICONS.pin}</button>`
@@ -1021,7 +1165,7 @@ function loadHistoryList() {
             l.append(`<div class="history-item group relative flex items-center justify-between p-2 hover:bg-white/5 rounded-lg cursor-pointer transition border border-transparent hover:border-white/5 mx-1 my-0.5 ${x.archived ? 'opacity-50' : ''} ${pinned ? 'border-l-2 border-yellow-600' : ''}" onclick="loadSession('${x.id}')" data-sid="${x.id}" id="wrapper-session-${x.id}">
 <input type="checkbox" class="history-item-checkbox hidden group-hover:inline-block ml-1 accent-nothing-red shrink-0" id="history-check-${x.id}" onclick="toggleSelect(event,'${x.id}')">
 <div class="flex-1 min-w-0">
-<div class="title-text truncate text-xs text-gray-400 font-mono flex items-center gap-1" ondblclick="renameChat(event,'${x.id}','${escapeHtml(x.title)}')">${pinned ? `<span class="text-yellow-500 w-3 h-3 inline-block">${ICONS.pin}</span>` : ''}<span class="truncate">${escapeHtml(x.title)}</span>${projLabel}</div>
+<div class="title-text truncate text-xs text-gray-400 font-mono flex items-center gap-1" ondblclick="renameChat(event,'${x.id}','${escapeHtml(x.title)}')">${pinned ? `<span class="text-yellow-500 w-3 h-3 inline-block">${ICONS.pin}</span>` : ''}<span class="truncate">${escapeHtml(x.title)}</span>${projLabel}${tokenBadge}</div>
 ${tagsHtml}
 </div>
 <div class="flex gap-0.5 opacity-0 group-hover:opacity-100 transition shrink-0">

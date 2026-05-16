@@ -43,11 +43,15 @@ def init_db():
     for col in ['images', 'model', 'system_prompt', 'project_id', 'archived', 'pinned', 'group_id', 'user_id']:
         try: c.execute(f"ALTER TABLE sessions ADD COLUMN {col} TEXT")
         except: pass
+    try: c.execute("ALTER TABLE sessions ADD COLUMN total_tokens INTEGER DEFAULT 0")
+    except: pass
+    try: c.execute("ALTER TABLE sessions ADD COLUMN forked_from TEXT")
+    except: pass
     try: c.execute("ALTER TABLE messages ADD COLUMN images TEXT")
     except: pass
     try: c.execute("ALTER TABLE messages ADD COLUMN pinned INTEGER DEFAULT 0")
     except: pass
-    for col in ['email', 'full_name', 'profile_pic']:
+    for col in ['email', 'full_name', 'profile_pic', 'role']:
         try: c.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT")
         except: pass
 
@@ -253,7 +257,7 @@ def get_history(user_id=None, include_archived=False):
     where = (" WHERE " + " AND ".join(conditions)) if conditions else ""
     cursor = conn.execute(f"""
         SELECT s.id, s.title, s.model, s.project_id, s.archived, s.pinned, s.group_id,
-               p.title as project_title 
+               p.title as project_title, s.total_tokens 
         FROM sessions s 
         LEFT JOIN projects p ON s.project_id = p.id 
         {where}
@@ -455,9 +459,9 @@ def fork_session(session_id, up_to_msg_id):
         conn.close()
         return None
     new_id = str(uuid.uuid4())
-    conn.execute("""INSERT INTO sessions (id, title, model, system_prompt, project_id, timestamp)
-                    VALUES (?, ?, ?, ?, ?, ?)""",
-                 (new_id, src['title'] + " (fork)", src['model'], src['system_prompt'], src['project_id'], datetime.now()))
+    conn.execute("""INSERT INTO sessions (id, title, model, system_prompt, project_id, timestamp, forked_from)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                 (new_id, src['title'] + " (fork)", src['model'], src['system_prompt'], src['project_id'], datetime.now(), session_id))
     cursor = conn.execute("SELECT * FROM messages WHERE session_id = ? AND id <= ? ORDER BY id ASC", (session_id, up_to_msg_id))
     msgs = [dict(row) for row in cursor.fetchall()]
     for m in msgs:
@@ -489,12 +493,12 @@ def delete_prompt(pid):
 
 
 # --- USERS ---
-def create_user(username, password_hash, email=None, full_name=None):
+def create_user(username, password_hash, email=None, full_name=None, role='user'):
     import uuid
     uid = str(uuid.uuid4())
     conn = get_db()
-    conn.execute("INSERT INTO users (id, username, password_hash, email, full_name, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                 (uid, username, password_hash, email, full_name, datetime.now()))
+    conn.execute("INSERT INTO users (id, username, password_hash, email, full_name, role, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                 (uid, username, password_hash, email, full_name, role, datetime.now()))
     conn.commit()
     conn.close()
     return uid
@@ -623,3 +627,60 @@ def mark_password_reset_token_used(token):
     conn.execute("UPDATE password_reset_tokens SET used = 1 WHERE token = ?", (token,))
     conn.commit()
     conn.close()
+
+def update_session_tokens(session_id, tokens):
+    conn = get_db()
+    conn.execute("UPDATE sessions SET total_tokens = ? WHERE id = ?", (tokens, session_id))
+    conn.commit()
+    conn.close()
+
+def get_provider_config():
+    conn = get_db()
+    provider = conn.execute("SELECT value FROM settings WHERE key = 'provider'").fetchone()
+    api_key = conn.execute("SELECT value FROM settings WHERE key = 'provider_api_key'").fetchone()
+    ollama_url = conn.execute("SELECT value FROM settings WHERE key = 'ollama_url'").fetchone()
+    conn.close()
+    return {
+        "provider": provider['value'] if provider else 'ollama',
+        "api_key": api_key['value'] if api_key else '',
+        "ollama_url": ollama_url['value'] if ollama_url else 'http://localhost:11434',
+    }
+
+def set_provider_config(provider, api_key='', ollama_url=''):
+    conn = get_db()
+    conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ("provider", provider))
+    conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ("provider_api_key", api_key))
+    if ollama_url:
+        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ("ollama_url", ollama_url))
+    conn.commit()
+    conn.close()
+
+def get_setting(key, default=''):
+    conn = get_db()
+    row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+    conn.close()
+    return row['value'] if row else default
+
+def set_setting(key, value):
+    conn = get_db()
+    conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, value))
+    conn.commit()
+    conn.close()
+
+def get_session_branch_info(session_id):
+    conn = get_db()
+    branches = []
+    current = conn.execute("SELECT id, title, forked_from FROM sessions WHERE id = ?", (session_id,)).fetchone()
+    if not current:
+        conn.close()
+        return []
+    branches.append({"id": current['id'], "title": current['title'], "depth": 0})
+    children = conn.execute("SELECT id, title, forked_from FROM sessions WHERE forked_from = ?", (session_id,)).fetchall()
+    for child in children:
+        branches.append({"id": child['id'], "title": child['title'], "depth": 1, "parent_id": session_id})
+    if current['forked_from']:
+        parent = conn.execute("SELECT id, title FROM sessions WHERE id = ?", (current['forked_from'],)).fetchone()
+        if parent:
+            branches.insert(0, {"id": parent['id'], "title": parent['title'], "depth": -1})
+    conn.close()
+    return branches

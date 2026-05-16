@@ -20,6 +20,7 @@ import utilities.file_parser as file_parser
 import utilities.embeddings as embed_utils
 import utilities.tools as tool_utils
 import utilities.email as email_utils
+import utilities.providers as providers
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -33,6 +34,31 @@ limiter = Limiter(
     default_limits=["200 per day", "50 per hour"],
     storage_uri="memory://",
 )
+
+# --- Seed super admin on startup ---
+_admin_seeded = False
+@app.before_request
+def _seed_admin():
+    global _admin_seeded
+    if _admin_seeded:
+        return
+    _admin_seeded = True
+    admin_email = os.environ.get('LOCALNEURAL_ADMIN_EMAIL', '')
+    admin_pass = os.environ.get('LOCALNEURAL_ADMIN_PASSWORD', '')
+    if not admin_email or not admin_pass:
+        return
+    existing = db.get_user_by_email(admin_email)
+    if existing:
+        if existing.get('role', 'user') != 'admin':
+            conn = db.get_db()
+            conn.execute("UPDATE users SET role = 'admin' WHERE email = ?", (admin_email,))
+            conn.commit()
+            conn.close()
+            print(f"Promoted user '{existing['username']}' to admin via .env config")
+        return
+    from werkzeug.security import generate_password_hash
+    uid = db.create_user('admin', generate_password_hash(admin_pass), email=admin_email, full_name='Super Admin', role='admin')
+    print(f"Super admin user created (id={uid})")
 
 
 @app.route('/favicon.ico')
@@ -132,6 +158,7 @@ def auth_me():
                 "email": user.get('email') or '',
                 "full_name": user.get('full_name') or '',
                 "profile_pic": user.get('profile_pic') or '',
+                "role": user.get('role', 'user'),
                 "created_at": user.get('created_at') or ''
             })
         return jsonify({"user_id": session['user_id'], "username": session.get('username')})
@@ -181,6 +208,17 @@ def reset_password_page(token):
     if not row:
         return render_template('reset_password.html', token=token, expired=True)
     return render_template('reset_password.html', token=token, expired=False)
+
+
+# --- ADMIN PAGE ---
+@app.route('/admin')
+def admin_page():
+    if 'user_id' not in session:
+        return redirect(url_for('login_page'))
+    user = db.get_user_by_id(session['user_id'])
+    if not user or user.get('role', 'user') != 'admin':
+        return redirect(url_for('home'))
+    return render_template('admin.html')
 
 
 # --- PROFILE ---
@@ -335,9 +373,43 @@ def set_session_config(sid):
     return jsonify({"status": "success"})
 
 
+# --- PROVIDER CONFIG ---
+@app.route('/api/provider/config', methods=['GET'])
+def get_provider_config():
+    return jsonify(db.get_provider_config())
+
+@app.route('/api/provider/config', methods=['POST'])
+def set_provider_config():
+    data = request.json
+    db.set_provider_config(data.get('provider', 'ollama'), data.get('api_key', ''), data.get('ollama_url', ''))
+    if data.get('ollama_url'):
+        Config.OLLAMA_API_URL = data['ollama_url']
+    return jsonify({"status": "success"})
+
+@app.route('/api/provider/models')
+def get_provider_models():
+    pconf = db.get_provider_config()
+    provider = pconf.get('provider', 'ollama')
+    api_key = pconf.get('api_key', '')
+    try:
+        models = providers.get_available_models(provider, api_key=api_key or None)
+        return jsonify(models if isinstance(models, list) else [])
+    except Exception:
+        return jsonify([])
+
+
 # --- STANDARD API ---
 @app.route('/api/models')
 def get_models():
+    pconf = db.get_provider_config()
+    provider = pconf.get('provider', 'ollama')
+    if provider != 'ollama':
+        api_key = pconf.get('api_key', '')
+        try:
+            models = providers.get_available_models(provider, api_key=api_key or None)
+            return jsonify({"models": models if isinstance(models, list) else []})
+        except Exception:
+            return {"error": f"{provider.title()} unavailable"}
     try:
         resp = requests.get(f'{Config.OLLAMA_API_URL}/api/tags', timeout=2)
         return resp.json() if resp.status_code == 200 else {"models": []}
@@ -768,6 +840,82 @@ def export(session_id):
 
     return "Error", 400
 
+
+# --- MESSAGE EXPORT ---
+@app.route('/api/messages/<msg_id>/export')
+def export_message(msg_id):
+    fmt = request.args.get('format', 'md')
+    conn = db.get_db()
+    msg = conn.execute("SELECT * FROM messages WHERE id = ?", (msg_id,)).fetchone()
+    conn.close()
+    if not msg:
+        return jsonify({"error": "Message not found"}), 404
+    content = msg['content']
+    role = msg['role'].upper()
+    if fmt == 'md':
+        out = f"> *Exported from LocalNeural — {role}*\n\n{content}"
+        return Response(out, mimetype='text/markdown', headers={"Content-disposition": f"attachment; filename=message_{msg_id}.md"})
+    return jsonify({"role": role, "content": content})
+
+
+# --- FORK / BRANCH INFO ---
+@app.route('/api/sessions/<sid>/branches')
+def get_session_branches(sid):
+    if not db.verify_session_owner(sid, session.get('user_id')):
+        return jsonify({"error": "Forbidden"}), 403
+    return jsonify(db.get_session_branch_info(sid))
+
+
+# --- ADMIN ---
+def require_admin():
+    if 'user_id' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+    user = db.get_user_by_id(session['user_id'])
+    if not user or user.get('role', 'user') != 'admin':
+        return jsonify({"error": "Forbidden"}), 403
+    return None
+
+@app.route('/api/admin/users', methods=['GET'])
+def admin_list_users():
+    err = require_admin()
+    if err: return err
+    conn = db.get_db()
+    rows = conn.execute("SELECT id, username, email, full_name, role, created_at FROM users ORDER BY created_at DESC").fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+@app.route('/api/admin/users/<uid>', methods=['DELETE'])
+def admin_delete_user(uid):
+    err = require_admin()
+    if err: return err
+    conn = db.get_db()
+    conn.execute("DELETE FROM sessions WHERE user_id = ?", (uid,))
+    conn.execute("DELETE FROM users WHERE id = ?", (uid,))
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "success"})
+
+@app.route('/api/admin/settings', methods=['GET'])
+def admin_get_settings():
+    err = require_admin()
+    if err: return err
+    return jsonify({
+        "system_prompt": db.get_system_prompt(),
+        "allow_registration": db.get_setting('allow_registration', 'true'),
+    })
+
+@app.route('/api/admin/settings', methods=['POST'])
+def admin_set_settings():
+    err = require_admin()
+    if err: return err
+    data = request.json
+    if 'system_prompt' in data:
+        db.set_system_prompt(data['system_prompt'])
+    if 'allow_registration' in data:
+        db.set_setting('allow_registration', data['allow_registration'])
+    return jsonify({"status": "success"})
+
+
 # --- BACKGROUND TASKS ---
 def background_rename(sid, prompt, model):
     title = utils.generate_smart_title(prompt, model)
@@ -844,6 +992,13 @@ def handle_message(data):
 def generate_response(session_id, model, temperature, options=None, file_context=None):
     history, system_prompt = utils.get_session_context(session_id)
 
+    now = datetime.now()
+    username = session.get('username', 'User')
+    system_prompt = system_prompt.replace('{date}', now.strftime('%B %d, %Y'))
+    system_prompt = system_prompt.replace('{time}', now.strftime('%I:%M %p'))
+    system_prompt = system_prompt.replace('{datetime}', now.strftime('%B %d, %Y at %I:%M %p'))
+    system_prompt = system_prompt.replace('{user}', username)
+
     if file_context and file_context.get('content'):
         fc = file_context
         context_str = f"\n\n[SYSTEM: The user has attached the file '{fc['filename']}'. Use its contents to answer the user's query.]\n--- BEGIN FILE: {fc['filename']} ---\n{fc['content'][:50000]}\n--- END FILE ---\n"
@@ -869,40 +1024,42 @@ def generate_response(session_id, model, temperature, options=None, file_context
             opts['num_predict'] = int(options['max_tokens'])
             max_tokens_val = int(options['max_tokens'])
 
+    # Load provider config
+    pconf = db.get_provider_config()
+    provider = pconf.get('provider', 'ollama')
+    api_key = pconf.get('api_key', '')
+    ollama_url = pconf.get('ollama_url', '')
+    if ollama_url:
+        Config.OLLAMA_API_URL = ollama_url
+
     # Tool use loop: up to 5 rounds of tool calls
     max_tool_rounds = 5
     for _ in range(max_tool_rounds):
-        payload = {
-            "model": model, "messages": ollama_messages,
-            "options": opts, "stream": True,
-            "tools": tool_utils.TOOL_DEFINITIONS
-        }
-
         full_resp = ""
         tool_calls = []
         _generation_start_time[session_id] = time.time()
         _token_count[session_id] = 0
         try:
-            with requests.post(f'{Config.OLLAMA_API_URL}/api/chat', json=payload, stream=True, timeout=120) as r:
-                for line in r.iter_lines():
-                    if not active_streams.get(session_id, True): break
-                    if line:
-                        j = json.loads(line)
-                        if 'error' in j:
-                            emit('stream_chunk', {'chunk': f"\n**Error:** {j['error']}"})
-                            break
-                        msg = j.get('message', {})
-                        if msg.get('content'):
-                            c = msg['content']
-                            full_resp += c
-                            _token_count[session_id] = _token_count.get(session_id, 0) + 1
-                            elapsed = time.time() - _generation_start_time.get(session_id, time.time())
-                            tps = round(_token_count[session_id] / elapsed, 1) if elapsed > 0 else 0
-                            emit('stream_chunk', {'chunk': c, 'tps': tps, 'tokens': _token_count[session_id], 'max_tokens': max_tokens_val})
-                        if msg.get('tool_calls'):
-                            tool_calls = msg['tool_calls']
+            stream_gen = providers.chat_completion(
+                provider=provider, model=model, messages=ollama_messages,
+                options=opts, api_key=api_key or None, stream=True,
+                tools=tool_utils.TOOL_DEFINITIONS
+            )
+            for chunk in stream_gen:
+                if not active_streams.get(session_id, True): break
+                if 'content' in chunk and chunk['content']:
+                    c = chunk['content']
+                    full_resp += c
+                    _token_count[session_id] = _token_count.get(session_id, 0) + 1
+                    elapsed = time.time() - _generation_start_time.get(session_id, time.time())
+                    tps = round(_token_count[session_id] / elapsed, 1) if elapsed > 0 else 0
+                    emit('stream_chunk', {'chunk': c, 'tps': tps, 'tokens': _token_count[session_id], 'max_tokens': max_tokens_val})
+                if 'tool_calls' in chunk and chunk['tool_calls']:
+                    tool_calls = chunk['tool_calls']
+                if 'error' in chunk:
+                    emit('stream_chunk', {'chunk': f"\n**Error:** {chunk['error']}"})
         except requests.exceptions.ConnectionError:
-            emit('stream_chunk', {'chunk': "**Error:** Cannot connect to Ollama. Is it running?"})
+            emit('stream_chunk', {'chunk': "**Error:** Cannot connect to AI provider. Is it running?"})
             db.save_message(session_id, "assistant", full_resp)
             emit('stream_done', {})
             return
@@ -922,6 +1079,7 @@ def generate_response(session_id, model, temperature, options=None, file_context
             emit('stream_chunk', {'chunk': f" done.\n\n"})
 
     db.save_message(session_id, "assistant", full_resp)
+    db.update_session_tokens(session_id, _token_count.get(session_id, 0))
     emit('stream_done', {})
     
 if __name__ == '__main__':

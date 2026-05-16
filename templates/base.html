@@ -4,6 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>LocalNeural</title>
+    <script>
+        (function() {
+            var t = localStorage.getItem('ln-theme');
+            if (t === 'light') document.documentElement.className = 'light';
+            else document.documentElement.className = 'dark';
+        })();
+    </script>
     <!-- Dependencies -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
@@ -28,6 +35,7 @@
     </script>
 </head>
 <body class="bg-dots text-gray-200 font-sans antialiased selection:bg-nothing-red selection:text-white h-[100dvh] w-screen overflow-hidden">
+    <style>.bg-nothing-red { background-color: var(--accent, #D71921); } .text-nothing-red { color: var(--accent, #D71921); }</style>
     {% block content %}{% endblock %}
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>
