@@ -20,6 +20,14 @@
                 </div>
             </div>
 
+            <!-- AI Model -->
+            <div class="pt-4 border-t border-white/10">
+                <label class="block text-xs font-mono text-gray-500 mb-2 uppercase">Default AI Model</label>
+                <select id="setting-user-model" class="w-full bg-[#151515] border border-white/10 rounded px-2 py-1.5 text-xs text-gray-300 focus:outline-none focus:border-nothing-red font-mono">
+                    <option value="">Use provider default</option>
+                </select>
+            </div>
+
             <!-- Temperature -->
             <div>
                 <div class="flex justify-between mb-2">
@@ -54,32 +62,6 @@
                 </div>
             </div>
 
-            <!-- Export Data -->
-            <div class="pt-4 border-t border-white/10">
-                <label class="block text-xs font-mono text-gray-500 mb-3 uppercase">Export Current Chat</label>
-                <div class="grid grid-cols-3 gap-2">
-                    <button onclick="exportChat('md')" class="px-3 py-2 bg-white/5 hover:bg-white/10 rounded text-xs border border-white/10">Markdown</button>
-                    <button onclick="exportChat('json')" class="px-3 py-2 bg-white/5 hover:bg-white/10 rounded text-xs border border-white/10">JSON</button>
-                    <button onclick="exportChat('html')" class="px-3 py-2 bg-white/5 hover:bg-white/10 rounded text-xs border border-white/10">HTML / PDF</button>
-                </div>
-            </div>
-
-            <!-- Database -->
-            <div class="pt-4 border-t border-white/10">
-                <label class="block text-xs font-mono text-gray-500 mb-3 uppercase">Database</label>
-                <div class="grid grid-cols-2 gap-2">
-                    <button onclick="exportDB()" class="px-3 py-2 bg-white/5 hover:bg-white/10 rounded text-xs border border-white/10">Backup DB</button>
-                    <button onclick="importDB()" class="px-3 py-2 bg-white/5 hover:bg-white/10 rounded text-xs border border-white/10">Restore DB</button>
-                </div>
-            </div>
-
-            <!-- Stats -->
-            <div class="pt-4 border-t border-white/10">
-                <label class="block text-xs font-mono text-gray-500 mb-3 uppercase">Usage Statistics</label>
-                <button onclick="loadStats()" class="w-full px-3 py-2 bg-white/5 hover:bg-white/10 rounded text-xs border border-white/10 text-left">Load Stats</button>
-                <div id="stats-display" class="text-[10px] font-mono text-gray-600 mt-2 hidden space-y-1"></div>
-            </div>
-
             <!-- AI Providers -->
             <div class="pt-4 border-t border-white/10">
                 <label class="block text-xs font-mono text-gray-500 mb-3 uppercase">AI Providers</label>
@@ -106,15 +88,72 @@
                 </div>
             </div>
 
+            <!-- Tools Setup -->
+            <div class="pt-4 border-t border-white/10">
+                <label class="block text-xs font-mono text-gray-500 mb-3 uppercase">Tools</label>
+                <div id="user-tools-list" class="space-y-2 mb-3"></div>
+                <button onclick="showAddToolForm()" class="px-3 py-1.5 bg-white/5 hover:bg-white/10 rounded text-xs border border-white/10 font-mono">+ Add Tool</button>
+                <div id="add-tool-form" class="hidden mt-3 space-y-2 p-3 bg-[#151515] rounded-lg border border-white/10">
+                    <input id="new-tool-name" placeholder="Tool name" class="w-full bg-[#111] border border-white/10 rounded px-2 py-1.5 text-xs text-gray-300 font-mono focus:outline-none focus:border-nothing-red">
+                    <input id="new-tool-desc" placeholder="Description" class="w-full bg-[#111] border border-white/10 rounded px-2 py-1.5 text-xs text-gray-300 font-mono focus:outline-none focus:border-nothing-red">
+                    <textarea id="new-tool-def" rows="4" placeholder='{"name":"my_tool","description":"...","parameters":{"type":"object","properties":{}}}' class="w-full bg-[#111] border border-white/10 rounded px-2 py-1.5 text-xs text-gray-300 font-mono focus:outline-none focus:border-nothing-red resize-none"></textarea>
+                    <div class="flex justify-end gap-2">
+                        <button onclick="document.getElementById('add-tool-form').classList.add('hidden')" class="px-3 py-1 text-xs text-gray-500 hover:text-white font-mono">Cancel</button>
+                        <button onclick="saveUserTool()" class="px-3 py-1 bg-nothing-red text-white text-xs rounded-full font-bold hover:bg-red-600">Save Tool</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Export Data -->
+            <div class="pt-4 border-t border-white/10">
+                <label class="block text-xs font-mono text-gray-500 mb-3 uppercase">Export Current Chat</label>
+                <div class="grid grid-cols-3 gap-2">
+                    <button onclick="exportChat('md')" class="px-3 py-2 bg-white/5 hover:bg-white/10 rounded text-xs border border-white/10">Markdown</button>
+                    <button onclick="exportChat('json')" class="px-3 py-2 bg-white/5 hover:bg-white/10 rounded text-xs border border-white/10">JSON</button>
+                    <button onclick="exportChat('html')" class="px-3 py-2 bg-white/5 hover:bg-white/10 rounded text-xs border border-white/10">HTML / PDF</button>
+                </div>
+            </div>
+
+            <!-- Database -->
+            <div class="pt-4 border-t border-white/10">
+                <label class="block text-xs font-mono text-gray-500 mb-3 uppercase">Database</label>
+                <div class="grid grid-cols-2 gap-2">
+                    <button onclick="exportDB()" class="px-3 py-2 bg-white/5 hover:bg-white/10 rounded text-xs border border-white/10">Backup DB</button>
+                    <button onclick="importDB()" class="px-3 py-2 bg-white/5 hover:bg-white/10 rounded text-xs border border-white/10">Restore DB</button>
+                </div>
+            </div>
+
+            <!-- Stats -->
+            <div class="pt-4 border-t border-white/10">
+                <label class="block text-xs font-mono text-gray-500 mb-3 uppercase">Usage Statistics</label>
+                <button onclick="loadStats()" class="w-full px-3 py-2 bg-white/5 hover:bg-white/10 rounded text-xs border border-white/10 text-left">Load Stats</button>
+                <div id="stats-display" class="text-[10px] font-mono text-gray-600 mt-2 hidden space-y-1"></div>
+            </div>
+
             <!-- Health -->
             <div class="pt-4 border-t border-white/10">
                 <label class="block text-xs font-mono text-gray-500 mb-3 uppercase">System Health</label>
                 <button onclick="healthCheck()" class="w-full px-3 py-2 bg-white/5 hover:bg-white/10 rounded text-xs border border-white/10 text-left">Check Status</button>
                 <div id="health-display" class="text-[10px] font-mono text-gray-600 mt-2 hidden"></div>
             </div>
+
+            <!-- Danger Zone -->
+            <div class="pt-4 border-t border-red-900/50">
+                <label class="block text-xs font-mono text-red-500 mb-3 uppercase">Danger Zone</label>
+                <div class="space-y-3">
+                    <div>
+                        <label class="text-[10px] font-mono text-gray-600 uppercase block mb-1">Delete Account</label>
+                        <p class="text-[10px] font-mono text-gray-600 mb-2">This permanently deletes your account and all conversations.</p>
+                        <div class="flex gap-2">
+                            <input id="delete-account-pw" type="password" placeholder="Enter your password to confirm" class="flex-1 bg-[#151515] border border-red-900/50 rounded px-2 py-1.5 text-xs text-gray-300 font-mono focus:outline-none focus:border-red-500" onkeydown="if(event.key==='Enter')deleteAccount()">
+                            <button onclick="deleteAccount()" class="px-4 py-1.5 bg-red-900/50 text-red-400 text-xs rounded-full font-bold hover:bg-red-800/50 transition border border-red-900/50">Delete</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
 
-        <div class="mt-8 flex justify-end gap-3">
+        <div class="mt-8 flex justify-end gap-3 px-6 pb-6">
             <button onclick="saveSettings()" class="px-6 py-2 bg-nothing-red text-white text-sm font-bold rounded-full hover:bg-red-600 transition shadow-lg">Save</button>
         </div>
     </div>

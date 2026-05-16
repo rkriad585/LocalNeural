@@ -1,0 +1,425 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="toast-container" id="toast-container"></div>
+<div class="flex h-full w-full relative">
+    <div class="flex-1 flex flex-col h-full min-w-0">
+        <header class="glass h-14 shrink-0 flex items-center px-4 sticky top-0 z-30">
+            <div class="flex items-center gap-3">
+                <div class="w-2 h-2 bg-nothing-red rounded-full"></div>
+                <h1 class="font-mono font-bold text-sm tracking-wider uppercase">Settings</h1>
+                <span class="text-[10px] font-mono text-gray-500">User Configuration</span>
+            </div>
+            <div class="ml-auto flex items-center gap-3">
+                <a href="/" class="text-xs font-mono text-gray-500 hover:text-white transition px-3 py-1.5 rounded hover:bg-white/5 border border-white/5">Back to Chat</a>
+            </div>
+        </header>
+
+        <div class="flex-1 overflow-y-auto p-6 space-y-8 max-w-3xl mx-auto w-full">
+
+            <!-- System Prompt -->
+            <section>
+                <h2 class="font-mono font-bold text-xs tracking-wider text-gray-500 uppercase mb-4">System Prompt</h2>
+                <div class="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-xl p-5 space-y-4">
+                    <textarea id="setting-system" rows="3" class="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-lg p-3 text-sm text-[var(--text-primary)] focus:border-nothing-red focus:outline-none resize-none"></textarea>
+                    <div>
+                        <label class="text-[10px] font-mono text-gray-600 uppercase">Load Template</label>
+                        <select id="template-select" onchange="applyTemplate()" class="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded px-2 py-1.5 text-xs text-[var(--text-primary)] focus:outline-none focus:border-nothing-red font-mono mt-1">
+                            <option value="">Select a template...</option>
+                        </select>
+                    </div>
+                </div>
+            </section>
+
+            <!-- AI Model -->
+            <section>
+                <h2 class="font-mono font-bold text-xs tracking-wider text-gray-500 uppercase mb-4">Default AI Model</h2>
+                <div class="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-xl p-5">
+                    <select id="setting-user-model" class="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded px-3 py-1.5 text-xs text-[var(--text-primary)] focus:outline-none focus:border-nothing-red font-mono">
+                        <option value="">Use provider default</option>
+                    </select>
+                </div>
+            </section>
+
+            <!-- Temperature -->
+            <section>
+                <h2 class="font-mono font-bold text-xs tracking-wider text-gray-500 uppercase mb-4">Temperature</h2>
+                <div class="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-xl p-5">
+                    <div class="flex justify-between mb-2">
+                        <span class="text-xs font-mono text-gray-500">Value</span>
+                        <span id="temp-display" class="text-xs font-mono text-nothing-red">0.7</span>
+                    </div>
+                    <input type="range" id="setting-temp" min="0" max="1" step="0.1" value="0.7" class="w-full" oninput="document.getElementById('temp-display').innerText = this.value">
+                </div>
+            </section>
+
+            <!-- Custom Theme -->
+            <section>
+                <h2 class="font-mono font-bold text-xs tracking-wider text-gray-500 uppercase mb-4">Custom Theme</h2>
+                <div class="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-xl p-5 space-y-4">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="text-[10px] font-mono text-gray-600 uppercase block mb-1">Accent Color</label>
+                            <div class="flex gap-2 items-center">
+                                <input type="color" id="accent-picker" value="#D71921" onchange="applyAccentColor(this.value)" class="w-10 h-10 rounded cursor-pointer border border-[var(--border-color)] bg-transparent p-0.5">
+                                <span id="accent-color-display" class="text-xs text-gray-500 font-mono">#D71921</span>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-mono text-gray-600 uppercase block mb-1">Font Size</label>
+                            <div class="flex gap-2 items-center">
+                                <input type="range" id="font-size-slider" min="11" max="18" step="1" value="14" oninput="applyFontSize(this.value)" class="flex-1">
+                                <span id="font-size-display" class="text-xs text-gray-500 font-mono w-8">14px</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button onclick="exportTheme()" class="px-3 py-2 bg-white/5 hover:bg-white/10 rounded text-xs border border-[var(--border-color)]">Export Theme</button>
+                        <button onclick="importTheme()" class="px-3 py-2 bg-white/5 hover:bg-white/10 rounded text-xs border border-[var(--border-color)]">Import Theme</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- AI Providers -->
+            <section>
+                <h2 class="font-mono font-bold text-xs tracking-wider text-gray-500 uppercase mb-4">AI Providers</h2>
+                <div class="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-xl p-5 space-y-4">
+                    <div>
+                        <label class="text-[10px] font-mono text-gray-600 uppercase block mb-1">Active Provider</label>
+                        <select id="setting-provider" onchange="onProviderChange()" class="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded px-2 py-1.5 text-xs text-[var(--text-primary)] focus:outline-none focus:border-nothing-red font-mono">
+                            <option value="ollama">Ollama (Local)</option>
+                            <option value="openai">OpenAI</option>
+                            <option value="anthropic">Anthropic</option>
+                            <option value="gemini">Google Gemini</option>
+                            <option value="openrouter">OpenRouter</option>
+                            <option value="groq">Groq</option>
+                        </select>
+                    </div>
+                    <div id="provider-api-key-group">
+                        <label class="text-[10px] font-mono text-gray-600 uppercase block mb-1">API Key</label>
+                        <input id="setting-api-key" type="password" placeholder="sk-..." class="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded px-2 py-1.5 text-xs text-[var(--text-primary)] focus:outline-none focus:border-nothing-red font-mono">
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-mono text-gray-600 uppercase block mb-1">Ollama Base URL</label>
+                        <input id="setting-ollama-url" type="text" value="http://localhost:11434" class="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded px-2 py-1.5 text-xs text-[var(--text-primary)] focus:outline-none focus:border-nothing-red font-mono">
+                    </div>
+                </div>
+            </section>
+
+            <!-- Tools -->
+            <section>
+                <h2 class="font-mono font-bold text-xs tracking-wider text-gray-500 uppercase mb-4">Tools</h2>
+                <div class="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-xl p-5 space-y-4">
+                    <div id="user-tools-list" class="space-y-2"></div>
+                    <button onclick="showAddToolForm()" class="px-3 py-1.5 bg-white/5 hover:bg-white/10 rounded text-xs border border-[var(--border-color)] font-mono">+ Add Tool</button>
+                    <div id="add-tool-form" class="hidden space-y-2 p-3 bg-[var(--bg-surface)] rounded-lg border border-[var(--border-color)]">
+                        <input id="new-tool-name" placeholder="Tool name" class="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded px-2 py-1.5 text-xs text-[var(--text-primary)] font-mono focus:outline-none focus:border-nothing-red">
+                        <input id="new-tool-desc" placeholder="Description" class="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded px-2 py-1.5 text-xs text-[var(--text-primary)] font-mono focus:outline-none focus:border-nothing-red">
+                        <textarea id="new-tool-def" rows="4" placeholder='{"name":"my_tool","description":"...","parameters":{"type":"object","properties":{}}}' class="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded px-2 py-1.5 text-xs text-[var(--text-primary)] font-mono focus:outline-none focus:border-nothing-red resize-none"></textarea>
+                        <div class="flex justify-end gap-2">
+                            <button onclick="document.getElementById('add-tool-form').classList.add('hidden')" class="px-3 py-1 text-xs text-gray-500 hover:text-white font-mono">Cancel</button>
+                            <button onclick="saveUserTool()" class="px-3 py-1 bg-nothing-red text-white text-xs rounded-full font-bold hover:bg-red-600">Save Tool</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Export & Database -->
+            <section>
+                <h2 class="font-mono font-bold text-xs tracking-wider text-gray-500 uppercase mb-4">Export &amp; Database</h2>
+                <div class="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-xl p-5 space-y-4">
+                    <div>
+                        <label class="text-[10px] font-mono text-gray-600 uppercase block mb-2">Export Current Chat</label>
+                        <div class="grid grid-cols-3 gap-2">
+                            <button onclick="exportChat('md')" class="px-3 py-2 bg-white/5 hover:bg-white/10 rounded text-xs border border-[var(--border-color)]">Markdown</button>
+                            <button onclick="exportChat('json')" class="px-3 py-2 bg-white/5 hover:bg-white/10 rounded text-xs border border-[var(--border-color)]">JSON</button>
+                            <button onclick="exportChat('html')" class="px-3 py-2 bg-white/5 hover:bg-white/10 rounded text-xs border border-[var(--border-color)]">HTML / PDF</button>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-mono text-gray-600 uppercase block mb-2">Database</label>
+                        <div class="grid grid-cols-2 gap-2">
+                            <button onclick="exportDB()" class="px-3 py-2 bg-white/5 hover:bg-white/10 rounded text-xs border border-[var(--border-color)]">Backup DB</button>
+                            <button onclick="importDB()" class="px-3 py-2 bg-white/5 hover:bg-white/10 rounded text-xs border border-[var(--border-color)]">Restore DB</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Stats -->
+            <section>
+                <h2 class="font-mono font-bold text-xs tracking-wider text-gray-500 uppercase mb-4">Usage Statistics</h2>
+                <div class="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-xl p-5 space-y-3">
+                    <button onclick="loadStats()" class="px-3 py-2 bg-white/5 hover:bg-white/10 rounded text-xs border border-[var(--border-color)] text-left">Load Stats</button>
+                    <div id="stats-display" class="text-[10px] font-mono text-gray-600 hidden space-y-1"></div>
+                </div>
+            </section>
+
+            <!-- Health -->
+            <section>
+                <h2 class="font-mono font-bold text-xs tracking-wider text-gray-500 uppercase mb-4">System Health</h2>
+                <div class="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-xl p-5 space-y-3">
+                    <button onclick="healthCheck()" class="px-3 py-2 bg-white/5 hover:bg-white/10 rounded text-xs border border-[var(--border-color)] text-left">Check Status</button>
+                    <div id="health-display" class="text-[10px] font-mono text-gray-600 hidden"></div>
+                </div>
+            </section>
+
+            <!-- Danger Zone -->
+            <section>
+                <h2 class="font-mono font-bold text-xs tracking-wider text-red-500 uppercase mb-4">Danger Zone</h2>
+                <div class="bg-[var(--bg-secondary)] border border-red-900/50 rounded-xl p-5 space-y-3">
+                    <label class="text-[10px] font-mono text-gray-600 uppercase block mb-1">Delete Account</label>
+                    <p class="text-[10px] font-mono text-gray-600 mb-2">This permanently deletes your account and all conversations.</p>
+                    <div class="flex gap-2">
+                        <input id="delete-account-pw" type="password" placeholder="Enter your password to confirm" class="flex-1 bg-[var(--bg-input)] border border-red-900/50 rounded px-2 py-1.5 text-xs text-[var(--text-primary)] font-mono focus:outline-none focus:border-red-500" onkeydown="if(event.key==='Enter')deleteAccount()">
+                        <button onclick="deleteAccount()" class="px-4 py-1.5 bg-red-900/50 text-red-400 text-xs rounded-full font-bold hover:bg-red-800/50 transition border border-red-900/50">Delete</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Save -->
+            <div class="flex justify-end pb-8">
+                <button onclick="saveSettings()" class="px-8 py-2.5 bg-nothing-red text-white text-sm font-bold rounded-full hover:bg-red-600 transition shadow-lg">Save Settings</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function saveSettings() {
+    const sys = document.getElementById('setting-system').value;
+    $.ajax({
+        url: '/api/config', type: 'POST', contentType: 'application/json',
+        data: JSON.stringify({ system_prompt: sys }),
+        success: () => { showToast('Settings saved', 'success'); },
+        error: () => { showToast('Failed to save settings', 'error'); }
+    });
+    saveProviderConfig();
+    $.ajax({
+        url: '/api/user/settings', type: 'POST', contentType: 'application/json',
+        data: JSON.stringify({
+            model: $('#setting-user-model').val(),
+            temperature: $('#setting-temp').val(),
+        }),
+    });
+}
+
+function loadSettings() {
+    $.get('/api/config', (data) => {
+        document.getElementById('setting-system').value = data.system_prompt;
+        const sel = document.getElementById('template-select');
+        sel.innerHTML = '<option value="">Select a template...</option>';
+        if (data.templates) {
+            Object.entries(data.templates).forEach(([name, content]) => {
+                const opt = document.createElement('option');
+                opt.value = content;
+                opt.textContent = name;
+                sel.appendChild(opt);
+            });
+        }
+    });
+    document.getElementById('setting-temp').value = config.temperature;
+    document.getElementById('temp-display').textContent = config.temperature;
+    const savedAccent = localStorage.getItem('ln-accent') || '#D71921';
+    document.getElementById('accent-picker').value = savedAccent;
+    document.getElementById('accent-color-display').textContent = savedAccent;
+    const savedFontSize = localStorage.getItem('ln-font-size') || '14px';
+    const fsNum = parseInt(savedFontSize);
+    document.getElementById('font-size-slider').value = fsNum;
+    document.getElementById('font-size-display').textContent = savedFontSize;
+    loadProviderConfig();
+    loadUserTools();
+}
+
+function loadProviderConfig() {
+    $.get('/api/provider/config', (data) => {
+        document.getElementById('setting-provider').value = data.provider || 'ollama';
+        document.getElementById('setting-api-key').value = data.api_key || '';
+        document.getElementById('setting-ollama-url').value = data.ollama_url || 'http://localhost:11434';
+        onProviderChange();
+    });
+    loadUserModelSelect();
+}
+
+function loadUserModelSelect() {
+    const sel = $('#setting-user-model');
+    const currentVal = sel.val();
+    $.get('/api/models', (data) => {
+        const models = data.models || data || [];
+        sel.empty().append('<option value="">Use provider default</option>');
+        if (Array.isArray(models)) {
+            models.forEach(m => {
+                const name = typeof m === 'string' ? m : (m.name || m.model || '');
+                if (name) sel.append('<option value="' + escapeHtml(name) + '">' + escapeHtml(name) + '</option>');
+            });
+        }
+        $.get('/api/user/settings', (us) => {
+            if (us.model) sel.val(us.model);
+        });
+    });
+}
+
+function onProviderChange() {
+    const p = document.getElementById('setting-provider').value;
+    const keyGroup = document.getElementById('provider-api-key-group');
+    const urlGroup = document.getElementById('setting-ollama-url').closest('div');
+    if (p === 'ollama') {
+        keyGroup.classList.add('hidden');
+        urlGroup.classList.remove('hidden');
+    } else {
+        keyGroup.classList.remove('hidden');
+        urlGroup.classList.add('hidden');
+    }
+}
+
+function saveProviderConfig() {
+    const prov = document.getElementById('setting-provider').value;
+    const data = {
+        provider: prov,
+        api_key: document.getElementById('setting-api-key').value,
+        ollama_url: prov === 'ollama' ? document.getElementById('setting-ollama-url').value : '',
+    };
+    $.ajax({
+        url: '/api/provider/config', type: 'POST', contentType: 'application/json',
+        data: JSON.stringify(data),
+        success: () => { showToast('Provider config saved', 'success'); },
+        error: () => { showToast('Failed to save provider config', 'error'); }
+    });
+}
+
+function applyTemplate() {
+    const val = document.getElementById('template-select').value;
+    if (val) document.getElementById('setting-system').value = val;
+}
+
+function applyAccentColor(color) {
+    document.getElementById('accent-color-display').textContent = color;
+    document.documentElement.style.setProperty('--accent', color);
+    localStorage.setItem('ln-accent', color);
+    let styleEl = document.getElementById('ln-accent-override');
+    if (!styleEl) {
+        styleEl = document.createElement('style');
+        styleEl.id = 'ln-accent-override';
+        document.head.appendChild(styleEl);
+    }
+    styleEl.textContent = '.bg-nothing-red { background-color: ' + color + ' !important; } .text-nothing-red { color: ' + color + ' !important; } .border-nothing-red { border-color: ' + color + ' !important; } .focus\\:border-nothing-red:focus { border-color: ' + color + ' !important; }';
+}
+
+function applyFontSize(size) {
+    const px = size + 'px';
+    document.getElementById('font-size-display').textContent = px;
+    document.body.style.fontSize = px;
+    localStorage.setItem('ln-font-size', px);
+}
+
+function exportTheme() {
+    const theme = { accent: localStorage.getItem('ln-accent') || '#D71921', fontSize: localStorage.getItem('ln-font-size') || '14px' };
+    const blob = new Blob([JSON.stringify(theme, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'localneural-theme.json'; a.click();
+}
+
+function importTheme() {
+    const input = document.createElement('input'); input.type = 'file'; input.accept = '.json';
+    input.onchange = function(e) {
+        const file = e.target.files[0]; if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(ev) {
+            try {
+                const theme = JSON.parse(ev.target.result);
+                if (theme.accent) { applyAccentColor(theme.accent); document.getElementById('accent-picker').value = theme.accent; }
+                if (theme.fontSize) { const num = parseInt(theme.fontSize); applyFontSize(num); document.getElementById('font-size-slider').value = num; }
+                showToast('Theme imported', 'success');
+            } catch(e) { showToast('Invalid theme file', 'error'); }
+        };
+        reader.readAsText(file);
+    };
+    input.click();
+}
+
+function exportChat(fmt) { window.open('/api/export/' + (currentSessionId || '') + '?format=' + fmt); }
+function exportDB() { window.open('/api/db/export'); }
+function importDB() { document.getElementById('db-import-input') ? document.getElementById('db-import-input').click() : (function() { const i = document.createElement('input'); i.type = 'file'; i.accept = '.db,.sqlite'; i.onchange = function(e) { const f = e.target.files[0]; if (!f) return; const fd = new FormData(); fd.append('file', f); $.ajax({ url: '/api/db/import', type: 'POST', data: fd, processData: false, contentType: false, success: function(d) { showToast(d.status === 'success' ? 'Database restored' : 'Import failed', d.status === 'success' ? 'success' : 'error'); }, error: function() { showToast('Import failed', 'error'); } }); }; i.click(); })(); }
+
+function loadStats() {
+    $.get('/api/stats', (s) => {
+        const el = document.getElementById('stats-display');
+        el.classList.remove('hidden');
+        el.innerHTML = '<div>Sessions: ' + (s.total_sessions || 0) + '</div><div>Messages: ' + (s.total_messages || 0) + '</div><div>Active: ' + (s.active_sessions || 0) + '</div><div>Archived: ' + (s.archived_sessions || 0) + '</div><div>Tokens: ~' + Math.round((s.total_est_tokens || 0) / 1000) + 'k</div>';
+    });
+}
+
+function healthCheck() {
+    $.get('/api/health', (h) => {
+        const el = document.getElementById('health-display');
+        el.classList.remove('hidden');
+        el.innerHTML = '<div class="' + (h.status === 'ok' ? 'text-green-500' : 'text-yellow-500') + '">Status: ' + h.status + '</div><div>Ollama: ' + (h.ollama ? 'OK' : 'Down') + '</div><div>DB: ' + (h.db_size || '?') + '</div>';
+    });
+}
+
+function loadUserTools() {
+    $.get('/api/tools', (tools) => {
+        const el = document.getElementById('user-tools-list');
+        if (!tools || !tools.length) { el.innerHTML = '<div class="text-[10px] text-gray-600 font-mono">No custom tools configured.</div>'; return; }
+        el.innerHTML = tools.map(t => {
+            let name = '';
+            try { const d = JSON.parse(t.definition); name = d.function ? d.function.name : t.name; } catch(e) { name = t.name; }
+            return '<div class="flex items-center justify-between bg-[var(--bg-surface)] rounded px-2 py-1.5 border border-[var(--border-color)]">' +
+                '<div><span class="text-xs text-[var(--text-primary)] font-mono">' + escapeHtml(name) + '</span>' +
+                '<span class="text-[10px] text-[var(--text-muted)] font-mono ml-2">' + escapeHtml(t.description || '') + '</span></div>' +
+                '<button onclick="deleteUserTool(\'' + t.id + '\')" class="text-red-500 hover:text-red-400 text-[10px] font-mono underline">Delete</button></div>';
+        }).join('');
+    });
+}
+
+function saveUserTool() {
+    const name = document.getElementById('new-tool-name').value.trim();
+    const desc = document.getElementById('new-tool-desc').value.trim();
+    let def = document.getElementById('new-tool-def').value.trim();
+    if (!name || !def) { showToast('Tool name and definition required', 'error'); return; }
+    try { def = JSON.parse(def); } catch(e) { showToast('Invalid JSON definition', 'error'); return; }
+    $.ajax({
+        url: '/api/tools', type: 'POST', contentType: 'application/json',
+        data: JSON.stringify({ name, description: desc, definition: def }),
+        success: () => { showToast('Tool created', 'success'); document.getElementById('add-tool-form').classList.add('hidden'); document.getElementById('new-tool-name').value = ''; document.getElementById('new-tool-desc').value = ''; document.getElementById('new-tool-def').value = ''; loadUserTools(); },
+        error: (x) => { const r = x.responseJSON; showToast(r && r.error ? r.error : 'Failed', 'error'); }
+    });
+}
+
+function deleteUserTool(toolId) {
+    if (!confirm('Delete this tool?')) return;
+    $.ajax({ url: '/api/tools/' + toolId, type: 'DELETE', success: () => { showToast('Tool deleted', 'success'); loadUserTools(); }, error: () => { showToast('Delete failed', 'error'); } });
+}
+
+function showAddToolForm() { document.getElementById('add-tool-form').classList.remove('hidden'); }
+
+function deleteAccount() {
+    const pw = document.getElementById('delete-account-pw').value;
+    if (!pw) { showToast('Enter your password to confirm', 'error'); return; }
+    if (!confirm('Are you sure? This permanently deletes your account and all data.')) return;
+    $.ajax({
+        url: '/api/account/delete', type: 'POST', contentType: 'application/json',
+        data: JSON.stringify({ password: pw }),
+        success: () => { showToast('Account deleted'); setTimeout(() => window.location.href = '/login', 1500); },
+        error: (x) => { const r = x.responseJSON; showToast(r && r.error ? r.error : 'Delete failed', 'error'); }
+    });
+}
+
+function showToast(msg, type) {
+    const c = document.getElementById('toast-container');
+    if (!c) return;
+    const t = document.createElement('div');
+    t.className = 'toast toast-' + (type || 'info');
+    t.textContent = msg;
+    c.appendChild(t);
+    setTimeout(() => { t.style.animation = 'toast-out 0.3s ease forwards'; setTimeout(() => t.remove(), 300); }, 2500);
+}
+
+function escapeHtml(s) {
+    if (!s) return '';
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+var config = { temperature: 0.7 };
+try { config.temperature = parseFloat(localStorage.getItem('ln-temp')) || 0.7; } catch(e) {}
+loadSettings();
+</script>
+{% endblock %}

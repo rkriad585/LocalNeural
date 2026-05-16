@@ -612,6 +612,7 @@ function checkAuth() {
             $('#auth-user-info').text(data.username);
             $('#profile-link').removeClass('hidden');
             $('#logout-btn').removeClass('hidden');
+            if (data.role === 'admin') $('#admin-btn').removeClass('hidden');
 
             const initialsEl = $('#profile-initials-mini');
             const imgEl = $('#profile-pic-mini');
@@ -644,6 +645,31 @@ function saveSettings() {
         success: () => { toggleSettings(); showToast('Settings saved', 'success'); }
     });
     saveProviderConfig();
+    $.ajax({
+        url: '/api/user/settings', type: 'POST', contentType: 'application/json',
+        data: JSON.stringify({
+            model: $('#setting-user-model').val(),
+            temperature: $('#setting-temp').val(),
+        }),
+    });
+}
+
+function loadUserModelSelect() {
+    const sel = $('#setting-user-model');
+    const currentVal = sel.val();
+    $.get('/api/models', (data) => {
+        const models = data.models || data || [];
+        sel.empty().append('<option value="">Use provider default</option>');
+        if (Array.isArray(models)) {
+            models.forEach(m => {
+                const name = typeof m === 'string' ? m : (m.name || m.model || '');
+                if (name) sel.append('<option value="' + escapeHtml(name) + '">' + escapeHtml(name) + '</option>');
+            });
+        }
+        $.get('/api/user/settings', (us) => {
+            if (us.model) sel.val(us.model);
+        });
+    });
 }
 
 function loadSettings() {
@@ -667,6 +693,7 @@ function loadSettings() {
     $('#font-size-slider').val(fsNum);
     $('#font-size-display').text(savedFontSize);
     loadProviderConfig();
+    loadUserTools();
 }
 
 function applyTemplate() {
@@ -823,6 +850,7 @@ function loadProviderConfig() {
         $('#setting-ollama-url').val(data.ollama_url || 'http://localhost:11434');
         onProviderChange();
     });
+    loadUserModelSelect();
 }
 
 function onProviderChange() {
@@ -837,10 +865,11 @@ function onProviderChange() {
 }
 
 function saveProviderConfig() {
+    const prov = $('#setting-provider').val();
     const data = {
-        provider: $('#setting-provider').val(),
+        provider: prov,
         api_key: $('#setting-api-key').val(),
-        ollama_url: p === 'ollama' ? $('#setting-ollama-url').val() : '',
+        ollama_url: prov === 'ollama' ? $('#setting-ollama-url').val() : '',
     };
     $.ajax({
         url: '/api/provider/config', type: 'POST', contentType: 'application/json',
@@ -849,6 +878,59 @@ function saveProviderConfig() {
         error: () => { showToast('Failed to save provider config', 'error'); }
     });
 }
+
+function deleteAccount() {
+    const pw = document.getElementById('delete-account-pw').value;
+    if (!pw) { showToast('Enter your password to confirm', 'error'); return; }
+    if (!confirm('Are you sure? This permanently deletes your account and all data.')) return;
+    $.ajax({
+        url: '/api/account/delete', type: 'POST', contentType: 'application/json',
+        data: JSON.stringify({ password: pw }),
+        success: () => { showToast('Account deleted'); setTimeout(() => window.location.href = '/login', 1500); },
+        error: (x) => { const r = x.responseJSON; showToast(r && r.error ? r.error : 'Delete failed', 'error'); }
+    });
+}
+
+function loadUserTools() {
+    $.get('/api/tools', (tools) => {
+        const el = document.getElementById('user-tools-list');
+        if (!el) return;
+        if (!tools || !tools.length) { el.innerHTML = '<div class="text-[10px] text-gray-600 font-mono">No custom tools configured.</div>'; return; }
+        el.innerHTML = tools.map(t => {
+            let name = '';
+            try { const d = JSON.parse(t.definition); name = d.function ? d.function.name : t.name; } catch(e) { name = t.name; }
+            return '<div class="flex items-center justify-between bg-[#151515] rounded px-2 py-1.5 border border-white/5">' +
+                '<div><span class="text-xs text-gray-300 font-mono">' + escapeHtml(name) + '</span>' +
+                '<span class="text-[10px] text-gray-600 font-mono ml-2">' + escapeHtml(t.description || '') + '</span></div>' +
+                '<button onclick="deleteUserTool(\'' + t.id + '\')" class="text-red-500 hover:text-red-400 text-[10px] font-mono underline">Delete</button></div>';
+        }).join('');
+    });
+}
+
+function saveUserTool() {
+    const name = document.getElementById('new-tool-name').value.trim();
+    const desc = document.getElementById('new-tool-desc').value.trim();
+    let def = document.getElementById('new-tool-def').value.trim();
+    if (!name || !def) { showToast('Tool name and definition required', 'error'); return; }
+    try { def = JSON.parse(def); } catch(e) { showToast('Invalid JSON definition', 'error'); return; }
+    $.ajax({
+        url: '/api/tools', type: 'POST', contentType: 'application/json',
+        data: JSON.stringify({ name, description: desc, definition: def }),
+        success: () => { showToast('Tool created', 'success'); document.getElementById('add-tool-form').classList.add('hidden'); document.getElementById('new-tool-name').value = ''; document.getElementById('new-tool-desc').value = ''; document.getElementById('new-tool-def').value = ''; loadUserTools(); },
+        error: (x) => { const r = x.responseJSON; showToast(r && r.error ? r.error : 'Failed', 'error'); }
+    });
+}
+
+function deleteUserTool(toolId) {
+    if (!confirm('Delete this tool?')) return;
+    $.ajax({
+        url: '/api/tools/' + toolId, type: 'DELETE',
+        success: () => { showToast('Tool deleted', 'success'); loadUserTools(); },
+        error: () => { showToast('Delete failed', 'error'); }
+    });
+}
+
+function showAddToolForm() { document.getElementById('add-tool-form').classList.remove('hidden'); }
 
 function exportTheme() {
     const theme = {

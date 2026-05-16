@@ -59,6 +59,14 @@ def init_db():
         try: c.execute(f"ALTER TABLE projects ADD COLUMN {col} TEXT")
         except: pass
 
+    c.execute('''CREATE TABLE IF NOT EXISTS tools 
+                 (id TEXT PRIMARY KEY, name TEXT UNIQUE, description TEXT, definition TEXT, is_global INTEGER DEFAULT 1, user_id TEXT, created_at DATETIME)''')
+    try: c.execute("ALTER TABLE tools ADD COLUMN enabled INTEGER DEFAULT 1")
+    except: pass
+
+    c.execute('''CREATE TABLE IF NOT EXISTS user_settings 
+                 (user_id TEXT, key TEXT, value TEXT, PRIMARY KEY (user_id, key))''')
+
     c.execute('''CREATE TABLE IF NOT EXISTS password_reset_tokens
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, token TEXT UNIQUE, expires_at DATETIME, used INTEGER DEFAULT 0)''')
 
@@ -684,3 +692,87 @@ def get_session_branch_info(session_id):
             branches.insert(0, {"id": parent['id'], "title": parent['title'], "depth": -1})
     conn.close()
     return branches
+
+
+# --- TOOLS ---
+def get_all_tools(global_only=False, user_id=None):
+    conn = get_db()
+    if global_only:
+        rows = conn.execute("SELECT * FROM tools WHERE is_global = 1 AND enabled = 1 ORDER BY name").fetchall()
+    elif user_id:
+        rows = conn.execute("SELECT * FROM tools WHERE (is_global = 1 OR user_id = ?) AND enabled = 1 ORDER BY name", (user_id,)).fetchall()
+    else:
+        rows = conn.execute("SELECT * FROM tools ORDER BY name").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def get_tool(tool_id):
+    conn = get_db()
+    row = conn.execute("SELECT * FROM tools WHERE id = ?", (tool_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def get_tool_by_name(name):
+    conn = get_db()
+    row = conn.execute("SELECT * FROM tools WHERE name = ?", (name,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def create_tool(name, description, definition, is_global=1, user_id=None):
+    import uuid
+    tid = str(uuid.uuid4())
+    conn = get_db()
+    conn.execute("INSERT INTO tools (id, name, description, definition, is_global, user_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                 (tid, name, description, definition, is_global, user_id, datetime.now()))
+    conn.commit()
+    conn.close()
+    return tid
+
+def update_tool(tool_id, name=None, description=None, definition=None, enabled=None):
+    conn = get_db()
+    if name is not None:
+        conn.execute("UPDATE tools SET name = ? WHERE id = ?", (name, tool_id))
+    if description is not None:
+        conn.execute("UPDATE tools SET description = ? WHERE id = ?", (description, tool_id))
+    if definition is not None:
+        conn.execute("UPDATE tools SET definition = ? WHERE id = ?", (definition, tool_id))
+    if enabled is not None:
+        conn.execute("UPDATE tools SET enabled = ? WHERE id = ?", (1 if enabled else 0, tool_id))
+    conn.commit()
+    conn.close()
+
+def delete_tool(tool_id):
+    conn = get_db()
+    conn.execute("DELETE FROM tools WHERE id = ?", (tool_id,))
+    conn.commit()
+    conn.close()
+
+
+# --- USER SETTINGS ---
+def get_user_setting(user_id, key, default=''):
+    conn = get_db()
+    row = conn.execute("SELECT value FROM user_settings WHERE user_id = ? AND key = ?", (user_id, key)).fetchone()
+    conn.close()
+    return row['value'] if row else default
+
+def set_user_setting(user_id, key, value):
+    conn = get_db()
+    conn.execute("INSERT OR REPLACE INTO user_settings (user_id, key, value) VALUES (?, ?, ?)", (user_id, key, value))
+    conn.commit()
+    conn.close()
+
+def delete_user(user_id):
+    conn = get_db()
+    conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+    conn.execute("DELETE FROM messages WHERE session_id IN (SELECT id FROM sessions WHERE user_id = ?)", (user_id,))
+    conn.execute("DELETE FROM session_tags WHERE session_id IN (SELECT id FROM sessions WHERE user_id = ?)", (user_id,))
+    conn.execute("DELETE FROM user_settings WHERE user_id = ?", (user_id,))
+    conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+    conn.commit()
+    conn.close()
+
+def get_all_users():
+    conn = get_db()
+    rows = conn.execute("SELECT id, username, email, full_name, role, created_at FROM users ORDER BY created_at DESC").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]

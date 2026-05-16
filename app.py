@@ -49,7 +49,7 @@ def _seed_admin():
         return
     existing = db.get_user_by_email(admin_email)
     if existing:
-        if existing.get('role', 'user') != 'admin':
+        if (existing.get('role') or 'user') != 'admin':
             conn = db.get_db()
             conn.execute("UPDATE users SET role = 'admin' WHERE email = ?", (admin_email,))
             conn.commit()
@@ -210,13 +210,21 @@ def reset_password_page(token):
     return render_template('reset_password.html', token=token, expired=False)
 
 
+# --- SETTINGS PAGE ---
+@app.route('/settings')
+def settings_page():
+    if 'user_id' not in session:
+        return redirect(url_for('login_page'))
+    return render_template('settings_page.html')
+
+
 # --- ADMIN PAGE ---
 @app.route('/admin')
 def admin_page():
     if 'user_id' not in session:
         return redirect(url_for('login_page'))
     user = db.get_user_by_id(session['user_id'])
-    if not user or user.get('role', 'user') != 'admin':
+    if not user or (user.get('role') or 'user') != 'admin':
         return redirect(url_for('home'))
     return render_template('admin.html')
 
@@ -309,6 +317,19 @@ def change_password():
     db.update_user_password(session['user_id'], generate_password_hash(newpass))
     return jsonify({"status": "success"})
 
+@app.route('/api/account/delete', methods=['POST'])
+@limiter.limit("2 per minute")
+def delete_account():
+    if 'user_id' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+    user = db.get_user_by_id(session['user_id'])
+    password = request.json.get('password', '')
+    if not check_password_hash(user['password_hash'], password):
+        return jsonify({"error": "Password incorrect"}), 400
+    db.delete_user(session['user_id'])
+    session.clear()
+    return jsonify({"status": "success"})
+
 _generation_start_time = {}
 _token_count = {}
 
@@ -370,6 +391,92 @@ def set_config():
 @app.route('/api/session/<sid>/config', methods=['POST'])
 def set_session_config(sid):
     db.update_session_system_prompt(sid, request.json['system_prompt'])
+    return jsonify({"status": "success"})
+
+
+@app.route('/api/user/settings', methods=['GET'])
+def get_user_settings():
+    if 'user_id' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+    uid = session['user_id']
+    return jsonify({
+        "model": db.get_user_setting(uid, 'model', ''),
+        "provider": db.get_user_setting(uid, 'provider', ''),
+        "api_key": db.get_user_setting(uid, 'api_key', ''),
+        "system_prompt": db.get_user_setting(uid, 'system_prompt', ''),
+        "temperature": db.get_user_setting(uid, 'temperature', ''),
+    })
+
+@app.route('/api/user/settings', methods=['POST'])
+def set_user_settings_route():
+    if 'user_id' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+    uid = session['user_id']
+    data = request.json
+    for key in ('model', 'provider', 'api_key', 'system_prompt', 'temperature'):
+        if key in data:
+            db.set_user_setting(uid, key, str(data[key]))
+    return jsonify({"status": "success"})
+
+
+# --- TOOLS API ---
+@app.route('/api/tools', methods=['GET'])
+def list_tools():
+    if 'user_id' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+    tools = db.get_all_tools(user_id=session['user_id'])
+    return jsonify(tools)
+
+@app.route('/api/tools', methods=['POST'])
+def create_tool_route():
+    if 'user_id' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+    data = request.json
+    name = data.get('name', '').strip()
+    if not name:
+        return jsonify({"error": "Tool name required"}), 400
+    existing = db.get_tool_by_name(name)
+    if existing:
+        return jsonify({"error": "Tool with this name already exists"}), 409
+    try:
+        defn = json.dumps({"type": "function", "function": data.get('definition', {})})
+    except:
+        return jsonify({"error": "Invalid tool definition"}), 400
+    is_global = 1 if data.get('is_global') and require_admin() is None else 0
+    tid = db.create_tool(name, data.get('description', ''), defn, is_global=is_global, user_id=session['user_id'])
+    return jsonify({"status": "success", "id": tid})
+
+@app.route('/api/tools/<tool_id>', methods=['PUT'])
+def update_tool_route(tool_id):
+    if 'user_id' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+    tool = db.get_tool(tool_id)
+    if not tool:
+        return jsonify({"error": "Not found"}), 404
+    if not tool['is_global'] and tool['user_id'] != session['user_id']:
+        return jsonify({"error": "Forbidden"}), 403
+    if tool['is_global']:
+        err = require_admin()
+        if err: return err
+    data = request.json
+    db.update_tool(tool_id, name=data.get('name'), description=data.get('description'),
+                   definition=json.dumps(data.get('definition', {})) if 'definition' in data else None,
+                   enabled=data.get('enabled'))
+    return jsonify({"status": "success"})
+
+@app.route('/api/tools/<tool_id>', methods=['DELETE'])
+def delete_tool_route(tool_id):
+    if 'user_id' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+    tool = db.get_tool(tool_id)
+    if not tool:
+        return jsonify({"error": "Not found"}), 404
+    if not tool['is_global'] and tool['user_id'] != session['user_id']:
+        return jsonify({"error": "Forbidden"}), 403
+    if tool['is_global']:
+        err = require_admin()
+        if err: return err
+    db.delete_tool(tool_id)
     return jsonify({"status": "success"})
 
 
@@ -871,7 +978,7 @@ def require_admin():
     if 'user_id' not in session:
         return jsonify({"error": "Unauthorized"}), 401
     user = db.get_user_by_id(session['user_id'])
-    if not user or user.get('role', 'user') != 'admin':
+    if not user or (user.get('role') or 'user') != 'admin':
         return jsonify({"error": "Forbidden"}), 403
     return None
 
@@ -913,6 +1020,35 @@ def admin_set_settings():
         db.set_system_prompt(data['system_prompt'])
     if 'allow_registration' in data:
         db.set_setting('allow_registration', data['allow_registration'])
+    if 'provider' in data:
+        db.set_setting('global_provider', data['provider'])
+    if 'model' in data:
+        db.set_setting('global_model', data['model'])
+    return jsonify({"status": "success"})
+
+
+# --- ADMIN DASHBOARD PAGE ---
+@app.route('/admin_dashboard')
+def admin_dashboard():
+    if 'user_id' not in session:
+        return redirect(url_for('login_page'))
+    user = db.get_user_by_id(session['user_id'])
+    if not user or (user.get('role') or 'user') != 'admin':
+        return redirect(url_for('home'))
+    return render_template('admin_dashboard.html')
+
+
+@app.route('/api/admin/users/<uid>/role', methods=['PUT'])
+def admin_set_user_role(uid):
+    err = require_admin()
+    if err: return err
+    role = request.json.get('role', 'user')
+    if role not in ('user', 'admin'):
+        return jsonify({"error": "Invalid role"}), 400
+    conn = db.get_db()
+    conn.execute("UPDATE users SET role = ? WHERE id = ?", (role, uid))
+    conn.commit()
+    conn.close()
     return jsonify({"status": "success"})
 
 
@@ -1032,6 +1168,19 @@ def generate_response(session_id, model, temperature, options=None, file_context
     if ollama_url:
         Config.OLLAMA_API_URL = ollama_url
 
+    # Build tool definitions from static + DB tools
+    tool_defs = list(tool_utils.TOOL_DEFINITIONS)
+    uid = session.get('user_id')
+    if uid:
+        db_tools = db.get_all_tools(user_id=uid)
+        for t in db_tools:
+            try:
+                defn = json.loads(t['definition'])
+                if isinstance(defn, dict):
+                    tool_defs.append(defn)
+            except:
+                pass
+
     # Tool use loop: up to 5 rounds of tool calls
     max_tool_rounds = 5
     for _ in range(max_tool_rounds):
@@ -1043,7 +1192,7 @@ def generate_response(session_id, model, temperature, options=None, file_context
             stream_gen = providers.chat_completion(
                 provider=provider, model=model, messages=ollama_messages,
                 options=opts, api_key=api_key or None, stream=True,
-                tools=tool_utils.TOOL_DEFINITIONS
+                tools=tool_defs if tool_defs else None
             )
             for chunk in stream_gen:
                 if not active_streams.get(session_id, True): break

@@ -1,0 +1,250 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="toast-container" id="toast-container"></div>
+<div class="flex h-full w-full relative">
+    <div class="flex-1 flex flex-col h-full min-w-0">
+        <header class="glass h-14 shrink-0 flex items-center px-4 sticky top-0 z-30">
+            <div class="flex items-center gap-3">
+                <div class="w-2 h-2 bg-nothing-red rounded-full"></div>
+                <h1 class="font-mono font-bold text-sm tracking-wider uppercase">Admin Dashboard</h1>
+                <span class="text-[10px] font-mono text-gray-500">System Management</span>
+            </div>
+            <div class="ml-auto flex items-center gap-2">
+                <a href="/admin" class="text-xs font-mono text-nothing-red hover:text-white transition px-3 py-1.5 rounded hover:bg-white/5 border border-white/5">Admin Panel</a>
+                <a href="/" class="text-xs font-mono text-gray-500 hover:text-white transition px-3 py-1.5 rounded hover:bg-white/5 border border-white/5">Back to Chat</a>
+            </div>
+        </header>
+
+        <div class="flex-1 overflow-y-auto p-6 space-y-8 max-w-6xl mx-auto w-full">
+            <!-- USERS -->
+            <section>
+                <h2 class="font-mono font-bold text-xs tracking-wider text-gray-500 uppercase mb-4">Users</h2>
+                <div class="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-xl overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-xs font-mono">
+                            <thead>
+                                <tr class="bg-[var(--bg-surface)]">
+                                    <th class="text-left p-3 text-gray-500 font-semibold">Username</th>
+                                    <th class="text-left p-3 text-gray-500 font-semibold">Email</th>
+                                    <th class="text-left p-3 text-gray-500 font-semibold">Role</th>
+                                    <th class="text-left p-3 text-gray-500 font-semibold">Created</th>
+                                    <th class="text-right p-3 text-gray-500 font-semibold">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="admin-users-list"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- GLOBAL AI PROVIDER -->
+            <section>
+                <h2 class="font-mono font-bold text-xs tracking-wider text-gray-500 uppercase mb-4">Global AI Provider</h2>
+                <div class="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-xl p-5 space-y-4">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-mono text-gray-500 mb-2">Default Provider</label>
+                            <select id="admin-global-provider" class="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded px-3 py-1.5 text-xs text-[var(--text-primary)] font-mono focus:outline-none focus:border-nothing-red">
+                                <option value="ollama">Ollama (Local)</option>
+                                <option value="openai">OpenAI</option>
+                                <option value="anthropic">Anthropic</option>
+                                <option value="gemini">Google Gemini</option>
+                                <option value="openrouter">OpenRouter</option>
+                                <option value="groq">Groq</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-mono text-gray-500 mb-2">Default Model</label>
+                            <input id="admin-global-model" type="text" placeholder="e.g. gpt-4o" class="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded px-3 py-1.5 text-xs text-[var(--text-primary)] font-mono focus:outline-none focus:border-nothing-red">
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- GLOBAL SYSTEM PROMPT -->
+            <section>
+                <h2 class="font-mono font-bold text-xs tracking-wider text-gray-500 uppercase mb-4">Global System Prompt</h2>
+                <div class="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-xl p-5 space-y-4">
+                    <textarea id="admin-system-prompt" rows="4" class="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-lg p-3 text-sm text-[var(--text-primary)] focus:outline-none focus:border-nothing-red resize-none font-mono"></textarea>
+                    <div class="flex items-center gap-3">
+                        <label class="text-xs font-mono text-gray-500">Allow Registration</label>
+                        <select id="admin-allow-registration" class="bg-[var(--bg-input)] border border-[var(--border-color)] rounded px-3 py-1.5 text-xs text-[var(--text-primary)] font-mono focus:outline-none focus:border-nothing-red">
+                            <option value="true">Enabled</option>
+                            <option value="false">Disabled</option>
+                        </select>
+                    </div>
+                    <button onclick="saveAdminSettings()" class="px-6 py-2 bg-nothing-red text-white text-xs font-bold rounded-full hover:bg-red-600 transition shadow-lg">Save Settings</button>
+                </div>
+            </section>
+
+            <!-- GLOBAL TOOLS -->
+            <section>
+                <h2 class="font-mono font-bold text-xs tracking-wider text-gray-500 uppercase mb-4">Global Tools</h2>
+                <div class="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-xl p-5 space-y-4">
+                    <div id="admin-tools-list" class="space-y-2"></div>
+                    <button onclick="showAdminAddTool()" class="px-3 py-1.5 bg-white/5 hover:bg-white/10 rounded text-xs border border-white/10 font-mono">+ Add Global Tool</button>
+                    <div id="admin-add-tool-form" class="hidden mt-3 space-y-2 p-3 bg-[var(--bg-surface)] rounded-lg border border-[var(--border-color)]">
+                        <input id="admin-new-tool-name" placeholder="Tool name" class="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded px-2 py-1.5 text-xs text-[var(--text-primary)] font-mono focus:outline-none focus:border-nothing-red">
+                        <input id="admin-new-tool-desc" placeholder="Description" class="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded px-2 py-1.5 text-xs text-[var(--text-primary)] font-mono focus:outline-none focus:border-nothing-red">
+                        <textarea id="admin-new-tool-def" rows="4" placeholder='{"name":"my_tool","description":"...","parameters":{"type":"object","properties":{}}}' class="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded px-2 py-1.5 text-xs text-[var(--text-primary)] font-mono focus:outline-none focus:border-nothing-red resize-none"></textarea>
+                        <div class="flex justify-end gap-2">
+                            <button onclick="document.getElementById('admin-add-tool-form').classList.add('hidden')" class="px-3 py-1 text-xs text-gray-500 hover:text-white font-mono">Cancel</button>
+                            <button onclick="saveAdminTool()" class="px-3 py-1 bg-nothing-red text-white text-xs rounded-full font-bold hover:bg-red-600">Save Tool</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </div>
+</div>
+
+<script>
+function loadAdminUsers() {
+    fetch('/api/admin/users', { headers: {'X-Requested-With': 'XMLHttpRequest'} })
+    .then(r => { if (!r.ok) { window.location.href = '/'; return null; } return r.json(); })
+    .then(users => {
+        if (!users) return;
+        const tbody = document.getElementById('admin-users-list');
+        tbody.innerHTML = users.map(u => `
+            <tr class="border-t border-[var(--border-color)] hover:bg-[var(--hover-bg)]">
+                <td class="p-3 text-[var(--text-primary)]">${escapeHtml(u.username)}</td>
+                <td class="p-3 text-[var(--text-secondary)]">${escapeHtml(u.email || '\u2014')}</td>
+                <td class="p-3">
+                    <select onchange="setUserRole('${u.id}', this.value)" class="bg-transparent text-xs font-mono focus:outline-none ${u.role === 'admin' ? 'text-nothing-red' : 'text-gray-500'}">
+                        <option value="user" ${u.role === 'user' ? 'selected' : ''}>user</option>
+                        <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>admin</option>
+                    </select>
+                </td>
+                <td class="p-3 text-[var(--text-muted)]">${u.created_at ? new Date(u.created_at).toLocaleDateString() : '\u2014'}</td>
+                <td class="p-3 text-right">
+                    ${u.role !== 'admin' ? '<button onclick="deleteUser(\'' + u.id + '\')" class="text-red-500 hover:text-red-400 text-[10px] font-mono underline">Delete</button>' : '<span class="text-[10px] text-gray-600">\u2014</span>'}
+                </td>
+            </tr>
+        `).join('');
+    });
+}
+
+function setUserRole(uid, role) {
+    fetch('/api/admin/users/' + uid + '/role', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
+        body: JSON.stringify({ role: role })
+    })
+    .then(r => r.json())
+    .then(d => { if (d.status === 'success') { showToast('Role updated', 'success'); loadAdminUsers(); } else showToast(d.error || 'Failed', 'error'); })
+    .catch(() => showToast('Failed to update role', 'error'));
+}
+
+function deleteUser(uid) {
+    if (!confirm('Delete this user and all their sessions?')) return;
+    fetch('/api/admin/users/' + uid, {
+        method: 'DELETE', headers: {'X-Requested-With': 'XMLHttpRequest'}
+    })
+    .then(r => r.json())
+    .then(d => { if (d.status === 'success') { loadAdminUsers(); showToast('User deleted', 'success'); } else showToast(d.error || 'Failed', 'error'); })
+    .catch(() => showToast('Delete failed', 'error'));
+}
+
+function loadAdminSettings() {
+    fetch('/api/admin/settings', { headers: {'X-Requested-With': 'XMLHttpRequest'} })
+    .then(r => { if (!r.ok) { window.location.href = '/'; return null; } return r.json(); })
+    .then(s => {
+        if (!s) return;
+        document.getElementById('admin-system-prompt').value = s.system_prompt || '';
+        document.getElementById('admin-allow-registration').value = s.allow_registration || 'true';
+        document.getElementById('admin-global-provider').value = s.provider || 'ollama';
+        document.getElementById('admin-global-model').value = s.model || '';
+    });
+}
+
+function saveAdminSettings() {
+    const data = {
+        system_prompt: document.getElementById('admin-system-prompt').value,
+        allow_registration: document.getElementById('admin-allow-registration').value,
+        provider: document.getElementById('admin-global-provider').value,
+        model: document.getElementById('admin-global-model').value,
+    };
+    fetch('/api/admin/settings', {
+        method: 'POST', headers: {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
+        body: JSON.stringify(data)
+    })
+    .then(r => r.json())
+    .then(d => { showToast('Settings saved', 'success'); })
+    .catch(() => showToast('Failed to save settings', 'error'));
+}
+
+function loadAdminTools() {
+    fetch('/api/tools', { headers: {'X-Requested-With': 'XMLHttpRequest'} })
+    .then(r => r.json())
+    .then(tools => {
+        const el = document.getElementById('admin-tools-list');
+        if (!tools || !tools.length) { el.innerHTML = '<div class="text-[10px] text-gray-600 font-mono">No global tools configured.</div>'; return; }
+        el.innerHTML = tools.map(t => {
+            let name = '';
+            try { const d = JSON.parse(t.definition); name = d.function ? d.function.name : t.name; } catch(e) { name = t.name; }
+            const isGlobal = t.is_global ? '<span class="text-[10px] text-nothing-red ml-1">global</span>' : '';
+            return '<div class="flex items-center justify-between bg-[var(--bg-surface)] rounded px-2 py-1.5 border border-[var(--border-color)]">' +
+                '<div><span class="text-xs text-[var(--text-primary)] font-mono">' + escapeHtml(name) + '</span>' + isGlobal +
+                '<span class="text-[10px] text-[var(--text-muted)] font-mono ml-2">' + escapeHtml(t.description || '') + '</span></div>' +
+                '<div class="flex gap-2"><label class="text-[10px] text-gray-600 font-mono flex items-center gap-1">Enabled <input type="checkbox" ' + (t.enabled ? 'checked' : '') + ' onchange="toggleTool(\'' + t.id + '\', this.checked)" class="accent-nothing-red"></label>' +
+                '<button onclick="deleteTool(\'' + t.id + '\')" class="text-red-500 hover:text-red-400 text-[10px] font-mono underline">Delete</button></div></div>';
+        }).join('');
+    });
+}
+
+function toggleTool(toolId, enabled) {
+    fetch('/api/tools/' + toolId, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
+        body: JSON.stringify({ enabled: enabled })
+    })
+    .then(r => r.json())
+    .then(d => { showToast('Tool updated', 'success'); })
+    .catch(() => showToast('Failed', 'error'));
+}
+
+function deleteTool(toolId) {
+    if (!confirm('Delete this tool?')) return;
+    fetch('/api/tools/' + toolId, { method: 'DELETE', headers: {'X-Requested-With': 'XMLHttpRequest'} })
+    .then(r => r.json())
+    .then(d => { if (d.status === 'success') { showToast('Tool deleted', 'success'); loadAdminTools(); } else showToast(d.error || 'Failed', 'error'); })
+    .catch(() => showToast('Delete failed', 'error'));
+}
+
+function showAdminAddTool() { document.getElementById('admin-add-tool-form').classList.remove('hidden'); }
+
+function saveAdminTool() {
+    const name = document.getElementById('admin-new-tool-name').value.trim();
+    const desc = document.getElementById('admin-new-tool-desc').value.trim();
+    let def = document.getElementById('admin-new-tool-def').value.trim();
+    if (!name || !def) { showToast('Tool name and definition required', 'error'); return; }
+    try { def = JSON.parse(def); } catch(e) { showToast('Invalid JSON definition', 'error'); return; }
+    fetch('/api/tools', {
+        method: 'POST', headers: {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
+        body: JSON.stringify({ name, description: desc, definition: def, is_global: true })
+    })
+    .then(r => r.json())
+    .then(d => { if (d.status === 'success') { showToast('Global tool created', 'success'); document.getElementById('admin-add-tool-form').classList.add('hidden'); document.getElementById('admin-new-tool-name').value = ''; document.getElementById('admin-new-tool-desc').value = ''; document.getElementById('admin-new-tool-def').value = ''; loadAdminTools(); } else showToast(d.error || 'Failed', 'error'); })
+    .catch(() => showToast('Failed', 'error'));
+}
+
+function showToast(msg, type) {
+    const c = document.getElementById('toast-container');
+    if (!c) return;
+    const t = document.createElement('div');
+    t.className = 'toast toast-' + (type || 'info');
+    t.textContent = msg;
+    c.appendChild(t);
+    setTimeout(() => { t.style.animation = 'toast-out 0.3s ease forwards'; setTimeout(() => t.remove(), 300); }, 2500);
+}
+
+function escapeHtml(s) {
+    if (!s) return '';
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+loadAdminUsers();
+loadAdminSettings();
+loadAdminTools();
+</script>
+{% endblock %}
