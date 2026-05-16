@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="toast-container" id="toast-container"></div>
+<div class="flex h-full w-full relative">
+    <div class="flex-1 flex flex-col h-full min-w-0">
+        <header class="glass h-14 shrink-0 flex items-center px-4 sticky top-0 z-30">
+            <div class="flex items-center gap-3">
+                <div class="w-2 h-2 bg-nothing-red rounded-full"></div>
+                <h1 class="font-mono font-bold text-sm tracking-wider uppercase">User Details</h1>
+                <span class="text-[10px] font-mono text-gray-500">Admin</span>
+            </div>
+            <div class="ml-auto flex items-center gap-2">
+                <a href="/admin_dashboard" class="text-xs font-mono text-gray-500 hover:text-white transition px-3 py-1.5 rounded hover:bg-white/5 border border-white/5">Dashboard</a>
+                <a href="/admin" class="text-xs font-mono text-nothing-red hover:text-white transition px-3 py-1.5 rounded hover:bg-white/5 border border-white/5">Admin Panel</a>
+                <a href="/" class="text-xs font-mono text-gray-500 hover:text-white transition px-3 py-1.5 rounded hover:bg-white/5 border border-white/5">Chat</a>
+            </div>
+        </header>
+
+        <div class="flex-1 overflow-y-auto p-6 space-y-6 max-w-6xl mx-auto w-full">
+            <!-- USER PROFILE -->
+            <section>
+                <div class="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-xl p-6 flex items-start gap-6">
+                    <div class="w-16 h-16 rounded-full bg-[var(--bg-surface)] border-2 border-[var(--border-color)] flex items-center justify-center text-xl font-bold text-gray-500 overflow-hidden shrink-0">
+                        {% if target_user.profile_pic %}
+                        <img src="{{ target_user.profile_pic }}" class="w-full h-full object-cover" alt="avatar">
+                        {% else %}
+                        <span id="user-avatar-initials">?</span>
+                        {% endif %}
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-3 mb-1">
+                            <h2 class="text-lg font-bold text-[var(--text-primary)] font-mono" id="user-display-name">{{ target_user.full_name or target_user.username }}</h2>
+                            <span id="user-role-badge" class="text-[10px] font-mono px-2 py-0.5 rounded-full border {% if target_user.role == 'admin' %}text-nothing-red border-nothing-red/50{% else %}text-gray-500 border-white/10{% endif %}">{{ target_user.role or 'user' }}</span>
+                        </div>
+                        <div class="grid grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-1 text-xs font-mono text-gray-500">
+                            <div>Username: <span class="text-[var(--text-primary)]" id="user-username">{{ target_user.username }}</span></div>
+                            <div>Email: <span class="text-[var(--text-primary)]" id="user-email">{{ target_user.email or '—' }}</span></div>
+                            <div>User ID: <span class="text-[var(--text-primary)] text-[10px]">{{ target_user.id }}</span></div>
+                            <div>Created: <span class="text-[var(--text-primary)]">{{ target_user.created_at[:10] if target_user.created_at else '—' }}</span></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- STATS -->
+            <section>
+                <h2 class="font-mono font-bold text-xs tracking-wider text-gray-500 uppercase mb-4">Statistics</h2>
+                <div class="grid grid-cols-3 gap-4" id="stats-grid">
+                    <div class="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-xl p-5 text-center">
+                        <div class="text-2xl font-bold text-[var(--text-primary)] font-mono" id="stat-sessions">—</div>
+                        <div class="text-[10px] font-mono text-gray-500 mt-1">Sessions</div>
+                    </div>
+                    <div class="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-xl p-5 text-center">
+                        <div class="text-2xl font-bold text-[var(--text-primary)] font-mono" id="stat-messages">—</div>
+                        <div class="text-[10px] font-mono text-gray-500 mt-1">Messages</div>
+                    </div>
+                    <div class="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-xl p-5 text-center">
+                        <div class="text-2xl font-bold text-[var(--text-primary)] font-mono" id="stat-tokens">—</div>
+                        <div class="text-[10px] font-mono text-gray-500 mt-1">Total Tokens</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SESSIONS -->
+            <section>
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="font-mono font-bold text-xs tracking-wider text-gray-500 uppercase">Chat Sessions</h2>
+                    <span class="text-[10px] font-mono text-gray-600" id="session-count-label">0 sessions</span>
+                </div>
+                <div class="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-xl overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-xs font-mono">
+                            <thead>
+                                <tr class="bg-[var(--bg-surface)]">
+                                    <th class="text-left p-3 text-gray-500 font-semibold">Title</th>
+                                    <th class="text-left p-3 text-gray-500 font-semibold">Model</th>
+                                    <th class="text-center p-3 text-gray-500 font-semibold">Messages</th>
+                                    <th class="text-right p-3 text-gray-500 font-semibold">Tokens</th>
+                                    <th class="text-right p-3 text-gray-500 font-semibold">Created</th>
+                                </tr>
+                            </thead>
+                            <tbody id="user-sessions-list">
+                                <tr><td colspan="5" class="p-6 text-center text-[10px] text-gray-600 font-mono">Loading sessions...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ADMIN ACTIONS -->
+            <section>
+                <h2 class="font-mono font-bold text-xs tracking-wider text-red-500 uppercase mb-4">Admin Actions</h2>
+                <div class="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-xl p-5 space-y-5">
+                    <div class="flex items-center gap-4">
+                        <label class="text-xs font-mono text-gray-500 w-24">Change Role</label>
+                        <select id="admin-user-role" class="bg-[var(--bg-input)] border border-[var(--border-color)] rounded px-3 py-1.5 text-xs text-[var(--text-primary)] font-mono focus:outline-none focus:border-nothing-red">
+                            <option value="user" {% if target_user.role == 'user' %}selected{% endif %}>User</option>
+                            <option value="admin" {% if target_user.role == 'admin' %}selected{% endif %}>Admin</option>
+                        </select>
+                        <button onclick="changeUserRole()" class="px-4 py-1.5 bg-white/5 hover:bg-white/10 rounded text-xs border border-white/10 font-mono">Update</button>
+                    </div>
+                    <div class="flex items-center gap-4">
+                        <label class="text-xs font-mono text-gray-500 w-24">Reset Password</label>
+                        <input id="admin-new-password" type="text" placeholder="New password (min 8 chars)" class="flex-1 bg-[var(--bg-input)] border border-[var(--border-color)] rounded px-3 py-1.5 text-xs text-[var(--text-primary)] font-mono focus:outline-none focus:border-nothing-red">
+                        <button onclick="resetUserPassword()" class="px-4 py-1.5 bg-white/5 hover:bg-white/10 rounded text-xs border border-white/10 font-mono">Set</button>
+                    </div>
+                    <div class="pt-3 border-t border-[var(--border-color)]">
+                        <button onclick="deleteThisUser()" class="px-6 py-2 bg-red-900/50 text-red-400 text-xs rounded-full font-bold hover:bg-red-800/50 transition border border-red-900/50">Delete This User</button>
+                        <span class="text-[10px] font-mono text-gray-600 ml-3">Permanently deletes user, all sessions, and messages.</span>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </div>
+</div>
+
+<script>
+const USER_ID = '{{ target_user.id }}';
+
+function loadUserDetail() {
+    fetch('/api/admin/user/' + USER_ID, { headers: {'X-Requested-With': 'XMLHttpRequest'} })
+    .then(r => { if (!r.ok) { window.location.href = '/admin_dashboard'; return null; } return r.json(); })
+    .then(d => {
+        if (!d) return;
+        const u = d.user;
+        document.getElementById('stat-sessions').textContent = d.stats.session_count;
+        document.getElementById('stat-messages').textContent = d.stats.message_count;
+        document.getElementById('stat-tokens').textContent = d.stats.total_tokens;
+        document.getElementById('session-count-label').textContent = d.stats.session_count + ' sessions';
+
+        const initials = (u.full_name || u.username || '?').trim().split(/\s+/);
+        document.getElementById('user-avatar-initials').textContent = initials.length > 1 ? (initials[0][0] + initials[initials.length-1][0]).toUpperCase() : (initials[0] && initials[0][0] ? initials[0][0].toUpperCase() : '?');
+
+        const tbody = document.getElementById('user-sessions-list');
+        if (!d.sessions || !d.sessions.length) {
+            tbody.innerHTML = '<tr><td colspan="5" class="p-6 text-center text-[10px] text-gray-600 font-mono">No sessions.</td></tr>';
+            return;
+        }
+        tbody.innerHTML = d.sessions.map(s => `
+            <tr class="border-t border-[var(--border-color)] hover:bg-[var(--hover-bg)]">
+                <td class="p-3 text-[var(--text-primary)] max-w-[200px] truncate">${escapeHtml(s.title || 'Untitled')}</td>
+                <td class="p-3 text-[var(--text-secondary)]">${escapeHtml(s.model || '—')}</td>
+                <td class="p-3 text-center text-[var(--text-muted)]">${s.msg_count || 0}</td>
+                <td class="p-3 text-right text-[var(--text-muted)]">${s.total_tokens || 0}</td>
+                <td class="p-3 text-right text-[var(--text-muted)] whitespace-nowrap">${s.timestamp ? new Date(s.timestamp).toLocaleDateString() : '—'}</td>
+            </tr>
+        `).join('');
+    });
+}
+
+function changeUserRole() {
+    const role = document.getElementById('admin-user-role').value;
+    fetch('/api/admin/users/' + USER_ID + '/role', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
+        body: JSON.stringify({ role: role })
+    })
+    .then(r => r.json())
+    .then(d => { if (d.status === 'success') { showToast('Role updated', 'success'); setTimeout(() => location.reload(), 1000); } else showToast(d.error || 'Failed', 'error'); })
+    .catch(() => showToast('Failed', 'error'));
+}
+
+function resetUserPassword() {
+    const pw = document.getElementById('admin-new-password').value;
+    if (!pw || pw.length < 8) { showToast('Password must be at least 8 characters', 'error'); return; }
+    if (!confirm('Set this password for the user? The user will need to use the new password on next login.')) return;
+    fetch('/api/admin/user/' + USER_ID + '/password', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
+        body: JSON.stringify({ password: pw })
+    })
+    .then(r => r.json())
+    .then(d => { if (d.status === 'success') { showToast('Password reset', 'success'); document.getElementById('admin-new-password').value = ''; } else showToast(d.error || 'Failed', 'error'); })
+    .catch(() => showToast('Failed', 'error'));
+}
+
+function deleteThisUser() {
+    if (!confirm('Permanently delete this user and ALL their sessions and messages?')) return;
+    if (!confirm('Are you sure? This cannot be undone.')) return;
+    fetch('/api/admin/users/' + USER_ID, {
+        method: 'DELETE', headers: {'X-Requested-With': 'XMLHttpRequest'}
+    })
+    .then(r => r.json())
+    .then(d => { if (d.status === 'success') { showToast('User deleted', 'success'); setTimeout(() => window.location.href = '/admin_dashboard', 1500); } else showToast(d.error || 'Failed', 'error'); })
+    .catch(() => showToast('Delete failed', 'error'));
+}
+
+function showToast(msg, type) {
+    const c = document.getElementById('toast-container');
+    if (!c) return;
+    const t = document.createElement('div');
+    t.className = 'toast toast-' + (type || 'info');
+    t.textContent = msg;
+    c.appendChild(t);
+    setTimeout(() => { t.style.animation = 'toast-out 0.3s ease forwards'; setTimeout(() => t.remove(), 300); }, 2500);
+}
+
+function escapeHtml(s) {
+    if (!s) return '';
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+loadUserDetail();
+</script>
+{% endblock %}

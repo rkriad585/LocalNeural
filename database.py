@@ -799,3 +799,25 @@ def get_all_users():
     rows = conn.execute("SELECT id, username, email, full_name, role, created_at FROM users ORDER BY created_at DESC").fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+def get_user_sessions(uid):
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT s.id, s.title, s.model, s.timestamp, s.total_tokens,
+               (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as msg_count
+        FROM sessions s WHERE s.user_id = ? ORDER BY s.timestamp DESC
+    """, (uid,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def get_user_message_count(uid):
+    conn = get_db()
+    row = conn.execute("SELECT COUNT(*) as cnt FROM messages m JOIN sessions s ON m.session_id = s.id WHERE s.user_id = ?", (uid,)).fetchone()
+    conn.close()
+    return row['cnt'] if row else 0
+
+def get_user_total_tokens(uid):
+    conn = get_db()
+    row = conn.execute("SELECT COALESCE(SUM(total_tokens), 0) as total FROM sessions WHERE user_id = ?", (uid,)).fetchone()
+    conn.close()
+    return row['total'] if row else 0

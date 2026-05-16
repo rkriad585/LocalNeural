@@ -1058,6 +1058,50 @@ def admin_set_user_role(uid):
     return jsonify({"status": "success"})
 
 
+# --- ADMIN USER DETAIL ---
+@app.route('/admin/user/<uid>')
+def admin_user_view(uid):
+    if 'user_id' not in session:
+        return redirect(url_for('login_page'))
+    user = db.get_user_by_id(session['user_id'])
+    if not user or (user.get('role') or 'user') != 'admin':
+        return redirect(url_for('home'))
+    target = db.get_user_by_id(uid)
+    if not target:
+        return redirect(url_for('admin_dashboard'))
+    return render_template('user_view.html', target_user=target)
+
+
+@app.route('/api/admin/user/<uid>', methods=['GET'])
+def admin_get_user_detail(uid):
+    err = require_admin()
+    if err: return err
+    target = db.get_user_by_id(uid)
+    if not target:
+        return jsonify({"error": "User not found"}), 404
+    stats = {
+        "session_count": len(db.get_user_sessions(uid)),
+        "message_count": db.get_user_message_count(uid),
+        "total_tokens": db.get_user_total_tokens(uid),
+    }
+    sessions = db.get_user_sessions(uid)
+    return jsonify({"user": target, "stats": stats, "sessions": sessions})
+
+
+@app.route('/api/admin/user/<uid>/password', methods=['POST'])
+def admin_set_user_password(uid):
+    err = require_admin()
+    if err: return err
+    newpass = request.json.get('password', '')
+    if len(newpass) < 8:
+        return jsonify({"error": "Password must be at least 8 characters"}), 400
+    target = db.get_user_by_id(uid)
+    if not target:
+        return jsonify({"error": "User not found"}), 404
+    db.update_user_password(uid, generate_password_hash(newpass))
+    return jsonify({"status": "success"})
+
+
 # --- BACKGROUND TASKS ---
 def background_rename(sid, prompt, model):
     title = utils.generate_smart_title(prompt, model)
