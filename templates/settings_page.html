@@ -187,6 +187,7 @@
 <script>
 function saveSettings() {
     const sys = document.getElementById('setting-system').value;
+    config.temperature = document.getElementById('setting-temp').value;
     $.ajax({
         url: '/api/config', type: 'POST', contentType: 'application/json',
         data: JSON.stringify({ system_prompt: sys }),
@@ -199,6 +200,9 @@ function saveSettings() {
         data: JSON.stringify({
             model: $('#setting-user-model').val(),
             temperature: $('#setting-temp').val(),
+            provider: document.getElementById('setting-provider').value,
+            api_key: document.getElementById('setting-api-key').value,
+            system_prompt: sys,
         }),
     });
 }
@@ -217,8 +221,14 @@ function loadSettings() {
             });
         }
     });
-    document.getElementById('setting-temp').value = config.temperature;
-    document.getElementById('temp-display').textContent = config.temperature;
+    $.get('/api/user/settings', (us) => {
+        if (us.temperature) {
+            config.temperature = us.temperature;
+            localStorage.setItem('ln-temp', us.temperature);
+        }
+        document.getElementById('setting-temp').value = config.temperature;
+        document.getElementById('temp-display').textContent = config.temperature;
+    });
     const savedAccent = localStorage.getItem('ln-accent') || '#D71921';
     document.getElementById('accent-picker').value = savedAccent;
     document.getElementById('accent-color-display').textContent = savedAccent;

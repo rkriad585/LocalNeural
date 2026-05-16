@@ -650,8 +650,14 @@ function saveSettings() {
         data: JSON.stringify({
             model: $('#setting-user-model').val(),
             temperature: $('#setting-temp').val(),
+            provider: $('#setting-provider').val(),
+            api_key: $('#setting-api-key').val(),
+            system_prompt: sys,
         }),
     });
+    if ($('#setting-user-model').val()) {
+        $('#model-select').val($('#setting-user-model').val());
+    }
 }
 
 function loadUserModelSelect() {
@@ -683,8 +689,20 @@ function loadSettings() {
             });
         }
     });
-    $('#setting-temp').val(config.temperature);
-    $('#temp-display').text(config.temperature);
+    $.get('/api/user/settings', (us) => {
+        if (us.temperature) {
+            config.temperature = us.temperature;
+            localStorage.setItem('ln-temp', us.temperature);
+        }
+        $('#setting-temp').val(config.temperature);
+        $('#temp-display').text(config.temperature);
+    });
+    if (!config.temperature || config.temperature === '0.7') {
+        const saved = localStorage.getItem('ln-temp');
+        if (saved) config.temperature = saved;
+        $('#setting-temp').val(config.temperature);
+        $('#temp-display').text(config.temperature);
+    }
     const savedAccent = localStorage.getItem('ln-accent') || '#D71921';
     $('#accent-picker').val(savedAccent);
     $('#accent-color-display').text(savedAccent);
@@ -1296,6 +1314,11 @@ function loadModels() {
         const s = $("#model-select"); s.empty();
         if (d.models) d.models.forEach(m => s.append(`<option value="${m.name}">${m.name}</option>`));
         else s.append(`<option>Ollama Down</option>`);
+        $.get('/api/user/settings', (us) => {
+            if (us.model && d.models && d.models.some(m => m.name === us.model || m === us.model)) {
+                s.val(us.model);
+            }
+        });
     });
 }
 

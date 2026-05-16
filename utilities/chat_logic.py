@@ -34,17 +34,17 @@ def generate_smart_title(user_prompt, model):
 
     return (user_prompt[:30] + '..') if len(user_prompt) > 30 else user_prompt
 
-def get_session_context(session_id):
+def get_session_context(session_id, user_id=None):
     """
-    Retrieves history and determines the correct system prompt (Session specific > Global)
+    Retrieves history and determines the correct system prompt (Session specific > User > Global)
     """
     history = db.get_messages(session_id)
     
     # 1. Check if session has a specific prompt
     sys_prompt = db.get_session_system_prompt(session_id)
     
-    # 2. If not, use global
+    # 2. If not, use user-specific prompt
     if not sys_prompt:
-        sys_prompt = db.get_system_prompt()
+        sys_prompt = db.get_system_prompt(user_id=user_id)
         
     return history, sys_prompt

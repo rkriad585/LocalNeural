@@ -185,13 +185,20 @@ def delete_last_ai_message(sid):
     return False
 
 
-def get_system_prompt():
+def get_system_prompt(user_id=None):
+    if user_id:
+        val = get_user_setting(user_id, 'system_prompt')
+        if val:
+            return val
     conn = get_db()
     row = conn.execute("SELECT value FROM settings WHERE key = 'system_prompt'").fetchone()
     conn.close()
     return row['value'] if row else Config.DEFAULT_SYSTEM
 
-def set_system_prompt(prompt):
+def set_system_prompt(prompt, user_id=None):
+    if user_id:
+        set_user_setting(user_id, 'system_prompt', prompt)
+        return
     conn = get_db()
     conn.execute("INSERT INTO settings (key, value) VALUES ('system_prompt', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (prompt,))
     conn.commit()
@@ -642,7 +649,17 @@ def update_session_tokens(session_id, tokens):
     conn.commit()
     conn.close()
 
-def get_provider_config():
+def get_provider_config(user_id=None):
+    if user_id:
+        u_provider = get_user_setting(user_id, 'provider')
+        u_api_key = get_user_setting(user_id, 'api_key')
+        u_ollama_url = get_user_setting(user_id, 'ollama_url')
+        if u_provider or u_api_key or u_ollama_url:
+            return {
+                "provider": u_provider or 'ollama',
+                "api_key": u_api_key or '',
+                "ollama_url": u_ollama_url or 'http://localhost:11434',
+            }
     conn = get_db()
     provider = conn.execute("SELECT value FROM settings WHERE key = 'provider'").fetchone()
     api_key = conn.execute("SELECT value FROM settings WHERE key = 'provider_api_key'").fetchone()
@@ -654,7 +671,13 @@ def get_provider_config():
         "ollama_url": ollama_url['value'] if ollama_url else 'http://localhost:11434',
     }
 
-def set_provider_config(provider, api_key='', ollama_url=''):
+def set_provider_config(provider, api_key='', ollama_url='', user_id=None):
+    if user_id:
+        set_user_setting(user_id, 'provider', provider)
+        set_user_setting(user_id, 'api_key', api_key)
+        if ollama_url:
+            set_user_setting(user_id, 'ollama_url', ollama_url)
+        return
     conn = get_db()
     conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ("provider", provider))
     conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ("provider_api_key", api_key))

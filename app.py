@@ -381,11 +381,13 @@ def delete_document(did):
 # --- CONFIG ---
 @app.route('/api/config', methods=['GET'])
 def get_config():
-    return jsonify({"system_prompt": db.get_system_prompt(), "templates": Config.PROMPT_TEMPLATES})
+    uid = session.get('user_id')
+    return jsonify({"system_prompt": db.get_system_prompt(user_id=uid), "templates": Config.PROMPT_TEMPLATES})
 
 @app.route('/api/config', methods=['POST'])
 def set_config():
-    db.set_system_prompt(request.json['system_prompt'])
+    uid = session.get('user_id')
+    db.set_system_prompt(request.json['system_prompt'], user_id=uid)
     return jsonify({"status": "success"})
 
 @app.route('/api/session/<sid>/config', methods=['POST'])
@@ -482,20 +484,23 @@ def delete_tool_route(tool_id):
 
 # --- PROVIDER CONFIG ---
 @app.route('/api/provider/config', methods=['GET'])
-def get_provider_config():
-    return jsonify(db.get_provider_config())
+def get_provider_config_route():
+    uid = session.get('user_id')
+    return jsonify(db.get_provider_config(user_id=uid))
 
 @app.route('/api/provider/config', methods=['POST'])
-def set_provider_config():
+def set_provider_config_route():
+    uid = session.get('user_id')
     data = request.json
-    db.set_provider_config(data.get('provider', 'ollama'), data.get('api_key', ''), data.get('ollama_url', ''))
+    db.set_provider_config(data.get('provider', 'ollama'), data.get('api_key', ''), data.get('ollama_url', ''), user_id=uid)
     if data.get('ollama_url'):
         Config.OLLAMA_API_URL = data['ollama_url']
     return jsonify({"status": "success"})
 
 @app.route('/api/provider/models')
 def get_provider_models():
-    pconf = db.get_provider_config()
+    uid = session.get('user_id')
+    pconf = db.get_provider_config(user_id=uid)
     provider = pconf.get('provider', 'ollama')
     api_key = pconf.get('api_key', '')
     try:
@@ -508,7 +513,8 @@ def get_provider_models():
 # --- STANDARD API ---
 @app.route('/api/models')
 def get_models():
-    pconf = db.get_provider_config()
+    uid = session.get('user_id')
+    pconf = db.get_provider_config(user_id=uid)
     provider = pconf.get('provider', 'ollama')
     if provider != 'ollama':
         api_key = pconf.get('api_key', '')
@@ -1123,10 +1129,10 @@ def handle_message(data):
     if is_new_chat:
         threading.Thread(target=background_rename, args=(session_id, prompt, model)).start()
 
-    generate_response(session_id, model, temperature, options, file_context=file_context)
+    generate_response(session_id, model, temperature, options, file_context=file_context, user_id=uid)
 
-def generate_response(session_id, model, temperature, options=None, file_context=None):
-    history, system_prompt = utils.get_session_context(session_id)
+def generate_response(session_id, model, temperature, options=None, file_context=None, user_id=None):
+    history, system_prompt = utils.get_session_context(session_id, user_id=user_id)
 
     now = datetime.now()
     username = session.get('username', 'User')
@@ -1160,8 +1166,8 @@ def generate_response(session_id, model, temperature, options=None, file_context
             opts['num_predict'] = int(options['max_tokens'])
             max_tokens_val = int(options['max_tokens'])
 
-    # Load provider config
-    pconf = db.get_provider_config()
+    # Load provider config (user-specific if available)
+    pconf = db.get_provider_config(user_id=user_id)
     provider = pconf.get('provider', 'ollama')
     api_key = pconf.get('api_key', '')
     ollama_url = pconf.get('ollama_url', '')
@@ -1170,7 +1176,7 @@ def generate_response(session_id, model, temperature, options=None, file_context
 
     # Build tool definitions from static + DB tools
     tool_defs = list(tool_utils.TOOL_DEFINITIONS)
-    uid = session.get('user_id')
+    uid = user_id or session.get('user_id')
     if uid:
         db_tools = db.get_all_tools(user_id=uid)
         for t in db_tools:
