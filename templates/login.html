@@ -103,7 +103,17 @@
             const btn = document.querySelector('#forgot-form button');
             btn.disabled = true; btn.textContent = 'Sending...';
             fetch('/api/auth/forgot-password', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({email}) })
-            .then(r => r.json()).then(d => {
+            .then(r => {
+                if (r.status === 404) {
+                    btn.disabled = false; btn.textContent = 'Send Reset Link';
+                    showRegister();
+                    document.getElementById('reg-email').value = email;
+                    showError('No account found with that email. Create one below.');
+                    return null;
+                }
+                return r.json();
+            }).then(d => {
+                if (!d) return;
                 btn.disabled = false; btn.textContent = 'Send Reset Link';
                 const msg = document.getElementById('forgot-msg');
                 if (d.status === 'success') {
@@ -135,7 +145,7 @@
             const cpassword = document.getElementById('reg-cpassword').value;
             if (!username || !password || !cpassword) { showError('Username, password and confirm password are required'); return; }
             if (password !== cpassword) { showError('Passwords do not match'); return; }
-            if (password.length < 4) { showError('Password must be at least 4 characters'); return; }
+            if (password.length < 8) { showError('Password must be at least 8 characters'); return; }
             if (email && email.indexOf('@') === -1) { showError('Invalid email address'); return; }
             fetch('/api/auth/register', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({username, password, cpassword, email, full_name}) })
             .then(r => r.json()).then(d => { if (d.status === 'success') window.location.href = '/'; else showError(d.error || 'Registration failed'); })

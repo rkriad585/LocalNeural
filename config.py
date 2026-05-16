@@ -1,4 +1,5 @@
 import os
+from datetime import timedelta
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -15,6 +16,10 @@ class Config:
 
     HOST = os.environ.get('LOCALNEURAL_HOST', '0.0.0.0')
     PORT = int(os.environ.get('LOCALNEURAL_PORT', 5000))
+
+    PERMANENT_SESSION_LIFETIME = timedelta(hours=72)
+    SESSION_COOKIE_SAMESITE = "Lax"
+    SESSION_COOKIE_HTTPONLY = True
 
     SMTP_HOST = os.environ.get('LOCALNEURAL_SMTP_HOST', 'smtp.gmail.com')
     SMTP_PORT = int(os.environ.get('LOCALNEURAL_SMTP_PORT', 587))

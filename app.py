@@ -6,8 +6,12 @@ import threading
 import time
 import shutil
 import io
+import sqlite3
+from datetime import datetime, timedelta
 from flask import Flask, render_template, request, jsonify, Response, send_file, session, redirect, url_for
 from flask_socketio import SocketIO, emit
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from werkzeug.security import generate_password_hash, check_password_hash
 from config import Config
 import database as db
@@ -20,7 +24,15 @@ import utilities.email as email_utils
 app = Flask(__name__)
 app.config.from_object(Config)
 app.secret_key = Config.SECRET_KEY
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading', max_http_buffer_size=10*1024*1024)
+app.permanent_session_lifetime = Config.PERMANENT_SESSION_LIFETIME
+socketio = SocketIO(app, cors_allowed_origins=[], async_mode='threading', max_http_buffer_size=10*1024*1024)
+
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=["200 per day", "50 per hour"],
+    storage_uri="memory://",
+)
 
 
 @app.route('/favicon.ico')
@@ -41,6 +53,13 @@ def check_auth():
         if 'user_id' not in session and request.path == '/':
             return redirect(url_for('login_page'))
 
+@app.before_request
+def csrf_check():
+    if request.method in ('POST', 'PUT', 'DELETE', 'PATCH'):
+        if request.path.startswith('/api/') and not request.path.startswith('/api/auth/'):
+            if request.headers.get('X-Requested-With') != 'XMLHttpRequest':
+                return jsonify({"error": "CSRF validation failed"}), 403
+
 
 # --- AUTH ---
 @app.route('/login', methods=['GET'])
@@ -50,6 +69,7 @@ def login_page():
     return render_template('login.html')
 
 @app.route('/api/auth/register', methods=['POST'])
+@limiter.limit("5 per minute")
 def register():
     username = request.json.get('username', '').strip()
     password = request.json.get('password', '').strip()
@@ -60,23 +80,25 @@ def register():
         return jsonify({"error": "Username and password required"}), 400
     if password != cpassword:
         return jsonify({"error": "Passwords do not match"}), 400
-    if len(password) < 4:
-        return jsonify({"error": "Password must be at least 4 characters"}), 400
+    if len(password) < 8:
+        return jsonify({"error": "Password must be at least 8 characters"}), 400
     if email and '@' not in email:
         return jsonify({"error": "Invalid email address"}), 400
     existing_u = db.get_user_by_username(username)
     if existing_u:
-        return jsonify({"error": "Username already taken"}), 409
+        return jsonify({"error": "Username or email already registered"}), 409
     if email:
         existing_e = db.get_user_by_email(email)
         if existing_e:
-            return jsonify({"error": "Email already in use"}), 409
+            return jsonify({"error": "Username or email already registered"}), 409
     user_id = db.create_user(username, generate_password_hash(password), email=email or None, full_name=full_name or None)
+    session.permanent = True
     session['user_id'] = user_id
     session['username'] = username
     return jsonify({"status": "success", "user_id": user_id})
 
 @app.route('/api/auth/login', methods=['POST'])
+@limiter.limit("10 per minute")
 def login():
     username = request.json.get('username', '').strip()
     password = request.json.get('password', '').strip()
@@ -85,6 +107,11 @@ def login():
         user = db.get_user_by_email(username)
     if not user or not check_password_hash(user['password_hash'], password):
         return jsonify({"error": "Invalid username or password"}), 401
+    session_data = dict(session)
+    session.clear()
+    for k, v in session_data.items():
+        session[k] = v
+    session.permanent = True
     session['user_id'] = user['id']
     session['username'] = user['username']
     return jsonify({"status": "success", "user_id": user['id']})
@@ -112,13 +139,14 @@ def auth_me():
 
 
 @app.route('/api/auth/forgot-password', methods=['POST'])
+@limiter.limit("3 per minute")
 def forgot_password():
     email = request.json.get('email', '').strip()
     if not email or '@' not in email:
         return jsonify({"error": "Valid email required"}), 400
     user = db.get_user_by_email(email)
     if not user:
-        return jsonify({"error": "If that email exists, a reset link has been sent"}), 200
+        return jsonify({"error": "user_not_found"}), 404
     token = db.create_password_reset_token(user['id'])
     reset_url = url_for('reset_password_page', token=token, _external=True)
     sent = email_utils.send_reset_email(email, reset_url)
@@ -128,6 +156,7 @@ def forgot_password():
 
 
 @app.route('/api/auth/reset-password', methods=['POST'])
+@limiter.limit("5 per minute")
 def reset_password():
     token = request.json.get('token', '').strip()
     password = request.json.get('password', '').strip()
@@ -136,8 +165,8 @@ def reset_password():
         return jsonify({"error": "All fields required"}), 400
     if password != cpassword:
         return jsonify({"error": "Passwords do not match"}), 400
-    if len(password) < 4:
-        return jsonify({"error": "Password must be at least 4 characters"}), 400
+    if len(password) < 8:
+        return jsonify({"error": "Password must be at least 8 characters"}), 400
     row = db.get_password_reset_token(token)
     if not row:
         return jsonify({"error": "Invalid or expired reset token"}), 400
@@ -191,13 +220,13 @@ def update_profile():
     if username and username != user['username']:
         existing = db.get_user_by_username(username)
         if existing:
-            return jsonify({"error": "Username already taken"}), 409
+            return jsonify({"error": "Username or email already registered"}), 409
         db.update_user(session['user_id'], username=username)
         session['username'] = username
     if email and email != (user.get('email') or ''):
         existing = db.get_user_by_email(email)
         if existing and existing['id'] != session['user_id']:
-            return jsonify({"error": "Email already in use"}), 409
+            return jsonify({"error": "Username or email already registered"}), 409
         if '@' not in email:
             return jsonify({"error": "Invalid email"}), 400
         db.update_user(session['user_id'], email=email)
@@ -225,6 +254,7 @@ def upload_profile_pic():
     return jsonify({"status": "success", "profile_pic": pic_url})
 
 @app.route('/api/profile/password', methods=['POST'])
+@limiter.limit("5 per minute")
 def change_password():
     if 'user_id' not in session:
         return jsonify({"error": "Unauthorized"}), 401
@@ -236,8 +266,8 @@ def change_password():
         return jsonify({"error": "Current password is incorrect"}), 400
     if newpass != cnewpass:
         return jsonify({"error": "New passwords do not match"}), 400
-    if len(newpass) < 4:
-        return jsonify({"error": "New password must be at least 4 characters"}), 400
+    if len(newpass) < 8:
+        return jsonify({"error": "New password must be at least 8 characters"}), 400
     db.update_user_password(session['user_id'], generate_password_hash(newpass))
     return jsonify({"status": "success"})
 
@@ -269,7 +299,7 @@ def create_project():
                         threading.Thread(target=index_document_embeddings, args=(doc_id, content), daemon=True).start()
         return jsonify({"status": "success", "id": project_id})
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"status": "error", "message": "Project creation failed"}), 500
 
 @app.route('/api/projects/<pid>', methods=['DELETE'])
 def delete_project(pid):
@@ -333,7 +363,7 @@ def pull_ollama_model():
         resp = requests.post(f'{Config.OLLAMA_API_URL}/api/pull', json={"name": name, "stream": False}, timeout=600)
         return jsonify({"status": "success" if resp.status_code == 200 else "error", "message": resp.text})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Failed to pull model"}), 500
 
 @app.route('/api/models/<name>', methods=['DELETE'])
 def delete_ollama_model(name):
@@ -341,7 +371,7 @@ def delete_ollama_model(name):
         resp = requests.delete(f'{Config.OLLAMA_API_URL}/api/delete', json={"name": name}, timeout=30)
         return jsonify({"status": "success" if resp.status_code == 200 else "error"})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Failed to delete model"}), 500
 
 @app.route('/api/history')
 def history():
@@ -541,10 +571,24 @@ def import_db():
     if 'file' not in request.files:
         return jsonify({"error": "No file"}), 400
     f = request.files['file']
+    tmp_path = Config.DB_FILE + ".tmp_import"
+    f.save(tmp_path)
+    try:
+        with open(tmp_path, 'rb') as fh:
+            header = fh.read(16)
+        if header != b'SQLite format 3\x00':
+            os.remove(tmp_path)
+            return jsonify({"error": "Invalid database file"}), 400
+        conn = sqlite3.connect(tmp_path)
+        conn.execute("SELECT COUNT(*) FROM sqlite_master")
+        conn.close()
+    except Exception:
+        os.remove(tmp_path)
+        return jsonify({"error": "Invalid database file"}), 400
     backup = Config.DB_FILE + ".backup"
     if os.path.exists(Config.DB_FILE):
         shutil.copy2(Config.DB_FILE, backup)
-    f.save(Config.DB_FILE)
+    os.replace(tmp_path, Config.DB_FILE)
     db.init_db()
     return jsonify({"status": "success", "backup": os.path.exists(backup)})
 
@@ -561,7 +605,7 @@ def url_scrape():
         text = file_parser.extract_html_text(resp.text) or resp.text[:50000]
         return jsonify({"content": text[:50000], "url": url})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Failed to scrape URL"}), 500
 
 
 # --- AUDIO TRANSCRIBE ---
@@ -586,7 +630,7 @@ def transcribe_audio():
             return jsonify({"text": text})
         return jsonify({"error": f"Whisper failed: {resp.text}"}), 500
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Transcription failed"}), 500
 
 
 # --- FILE UPLOAD (Ad-hoc Q&A) ---
@@ -628,7 +672,7 @@ def file_read():
             content = fh.read(100000)
         return jsonify({"filename": os.path.basename(path), "content": content, "path": path})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Failed to read file"}), 500
 
 
 # --- STATS ---
@@ -661,7 +705,7 @@ def summarize_session(session_id):
             return jsonify({"summary": summary})
         return jsonify({"error": "Summarization failed"}), 500
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Summarization failed"}), 500
 
 
 # --- WEB SEARCH ---
@@ -675,7 +719,7 @@ def web_search():
         results = search_duckduckgo(query)
         return jsonify({"results": results})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Search failed"}), 500
 
 
 # --- EXPORT ---
@@ -862,8 +906,8 @@ def generate_response(session_id, model, temperature, options=None, file_context
             db.save_message(session_id, "assistant", full_resp)
             emit('stream_done', {})
             return
-        except Exception as e:
-            emit('stream_chunk', {'chunk': f"**Error:** {str(e)}"})
+        except Exception:
+            emit('stream_chunk', {'chunk': "**Error:** Generation failed"})
 
         if not tool_calls:
             break
